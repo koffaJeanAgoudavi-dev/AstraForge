@@ -12,6 +12,7 @@ from astraforge.memory.embeddings import build_embedding_provider
 from astraforge.memory.store import MemoryStore
 from astraforge.orchestration.context import ExecutionContext
 from astraforge.orchestration.engine import Orchestrator
+from astraforge.orchestration.events import build_events
 from astraforge.projects.schemas import ProjectSpec, ProjectStatus
 from astraforge.state.store import StateStore
 from astraforge.workspace.manager import WorkspaceManager
@@ -112,18 +113,19 @@ class AutonomousPipeline:
             workspace = self.workspace_manager.create_project_workspace(project.id)
             files = []
 
-        def checkpoint(stage: str, status: str = "running", attempts: int = 0, error: str | None = None):
+        async def checkpoint(stage: str, status: str = "running", attempts: int = 0, error: str | None = None):
             if self.state_store and run_id is not None:
                 self.state_store.update_run(
                     run_id, stage=stage, status=status, attempts=attempts,
                     error=error, context=context.snapshot(),
                 )
+            await build_events.publish(project.id, {"type": "stage", "stage": stage, "status": status, "attempts": attempts, "error": error})
 
         try:
             architecture_text = context.architecture
             if not files:
                 project.status = ProjectStatus.BUILDING
-                checkpoint("building")
+                await checkpoint("building")
                 architecture = await self.architect.design(project)
                 architecture_text = architecture.plan
                 context.architecture = architecture.plan
@@ -138,7 +140,7 @@ class AutonomousPipeline:
                     project.id,
                     await self._memory_embedding(memory_text),
                 )
-                checkpoint("building")
+                await checkpoint("building")
 
                 plan = self.orchestrator.create_plan(project)
                 developer_task = next(task for task in plan.tasks if task.role.value == "developer")
@@ -155,7 +157,7 @@ class AutonomousPipeline:
                 architecture_text = context.architecture
 
             project.status = ProjectStatus.TESTING
-            checkpoint("testing")
+            await checkpoint("testing")
 
             from astraforge.orchestration.loop import BuildTestLoop, PipelineRepairAgent
 
@@ -182,11 +184,11 @@ class AutonomousPipeline:
 
             if not test_result.passed:
                 project.status = ProjectStatus.FAILED
-                checkpoint("testing", "failed", attempts, "Tests failed")
+                await checkpoint("testing", "failed", attempts, "Tests failed")
                 return PipelineResult(project.id, workspace, files, False, attempts, resumed=resumed)
 
             project.status = ProjectStatus.REVIEWING
-            checkpoint("reviewing", attempts=attempts)
+            await checkpoint("reviewing", attempts=attempts)
             context_findings = await self.context_reviewer.review_context(
                 project, architecture_text, files, tester_findings + "\n\nContext:\n" + context.prompt()
             )
@@ -222,17 +224,17 @@ class AutonomousPipeline:
                     )
                     if not test_result.passed:
                         project.status = ProjectStatus.FAILED
-                        checkpoint("testing", "failed", attempts, "Tests failed after review repair")
+                        await checkpoint("testing", "failed", attempts, "Tests failed after review repair")
                         return PipelineResult(project.id, workspace, files, False, attempts, resumed=resumed)
 
                 if not approved:
                     project.status = ProjectStatus.FAILED
-                    checkpoint("reviewing", "failed", attempts, "Review gate not approved")
+                    await checkpoint("reviewing", "failed", attempts, "Review gate not approved")
                     return PipelineResult(project.id, workspace, files, True, attempts, resumed=resumed)
 
             pr = None
             if self.github:
-                checkpoint("github", attempts=attempts)
+                await checkpoint("github", attempts=attempts)
                 branch = f"astraforge/{project.id}"
                 self.github.create_branch(branch)
                 for file_path in files:
@@ -254,7 +256,7 @@ class AutonomousPipeline:
 
             deployment = None
             if self.deployer:
-                checkpoint("deploying", attempts=attempts)
+                await checkpoint("deploying", attempts=attempts)
                 deployment = await __import__("asyncio").to_thread(self.deployer.deploy, workspace)
                 context.add_decision(f"Deployment completed: {deployment.url}")
 
@@ -267,10 +269,10 @@ class AutonomousPipeline:
                 await self._memory_embedding(outcome_text),
             )
             project.status = ProjectStatus.COMPLETED
-            checkpoint("completed", "completed", attempts)
+            await checkpoint("completed", "completed", attempts)
             return PipelineResult(project.id, workspace, files, True, attempts, pr, deployment, resumed)
 
         except Exception as exc:
             project.status = ProjectStatus.FAILED
-            checkpoint(project.status.value, "failed", 0, str(exc))
+            await checkpoint(project.status.value, "failed", 0, str(exc))
             raise
