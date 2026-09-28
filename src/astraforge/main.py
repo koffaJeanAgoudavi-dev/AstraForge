@@ -3,7 +3,14 @@
 from fastapi import FastAPI
 
 from astraforge import __version__
+from astraforge.api import router
 from astraforge.config import settings
+
+app = FastAPI(title=settings.app_name, version=__version__)
+app.include_router(router)
+
+
+#
 
 app = FastAPI(title=settings.app_name, version=__version__)
 
