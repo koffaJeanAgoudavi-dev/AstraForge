@@ -25,3 +25,16 @@ def test_factory_fails_without_provider(monkeypatch):
         monkeypatch.setattr(settings, name, None)
     with pytest.raises(RuntimeError):
         build_router()
+
+
+def test_router_orders_providers_by_role():
+    from astraforge.providers.base import ModelProvider, ModelResponse
+
+    class P(ModelProvider):
+        def __init__(self, name): self.name = name
+        async def generate(self, request):
+            return ModelResponse("ok", self.name, "test")
+
+    from astraforge.providers.router import ModelRouter
+    router = ModelRouter([P("groq"), P("deepseek"), P("openai")])
+    assert [p.name for p in router._ordered("developer")] == ["deepseek", "openai", "groq"]
