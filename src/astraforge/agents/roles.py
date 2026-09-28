@@ -1,1 +1,73 @@
-"""Role-aware agent orchestration."""\n\nimport json\nfrom dataclasses import dataclass\nfrom astraforge.providers.base import ModelRequest\nfrom astraforge.providers.router import ModelRouter\n\n@dataclass(frozen=True)\nclass ArchitectureResult:\n    plan: str\n    files: list[str]\n\nclass ArchitectAgent:\n    def __init__(self, router: ModelRouter) -> None:\n        self.router = router\n\n    async def design(self, project) -> ArchitectureResult:\n        response = await self.router.generate(\n            ModelRequest(\n                system_prompt=("You are AstraForge Architect. Design a practical software architecture. "\n                    "Return ONLY JSON with keys plan (string) and files (array of relative paths). "\n                    "Do not include secrets or absolute paths."),\n                prompt=("Project: " + project.name + "\nDescription: " + project.description +\n                        "\nRequirements: " + json.dumps(project.requirements)),\n                temperature=0.1, max_tokens=5000),\n            role="architect",\n        )\n        text = response.text.strip().removeprefix("```json").removesuffix("```").strip()\n        data = json.loads(text)\n        return ArchitectureResult(data["plan"], data.get("files", []))\n\nclass TesterAgent:\n    def __init__(self, router: ModelRouter) -> None:\n        self.router = router\n\n    async def assess(self, project, files: list[str], test_output: str) -> str:\n        response = await self.router.generate(\n            ModelRequest(\n                system_prompt=("You are AstraForge Tester. Analyze test results and identify concrete "\n                    "failures or missing tests. Return concise actionable findings."),\n                prompt=("Project: " + project.name + "\nFiles: " + json.dumps(files) +\n                        "\nTest output:\n" + test_output),\n                temperature=0.0, max_tokens=3000),\n            role="tester",\n        )\n        return response.text\n\nclass ReviewerAgentV2:\n    def __init__(self, router: ModelRouter) -> None:\n        self.router = router\n\n    async def review_context(self, project, architecture: str, files: list[str], findings: str) -> str:\n        response = await self.router.generate(\n            ModelRequest(\n                system_prompt=("You are AstraForge Reviewer. Review implementation against architecture "\n                    "and requirements. Identify blocking correctness, security, maintainability, and "\n                    "coverage issues. Return actionable findings only."),\n                prompt=("Project: " + project.name + "\nArchitecture:\n" + architecture +\n                        "\nFiles: " + json.dumps(files) + "\nTester findings:\n" + findings),\n                temperature=0.0, max_tokens=4000),\n            role="reviewer",\n        )\n        return response.text\n
+"""Role-aware agent orchestration."""
+
+import json
+from dataclasses import dataclass
+from astraforge.providers.base import ModelRequest
+from astraforge.providers.router import ModelRouter
+
+@dataclass(frozen=True)
+class ArchitectureResult:
+    plan: str
+    files: list[str]
+
+class ArchitectAgent:
+    def __init__(self, router: ModelRouter) -> None:
+        self.router = router
+
+    async def design(self, project) -> ArchitectureResult:
+        response = await self.router.generate(
+            ModelRequest(
+                system_prompt=("You are AstraForge Architect. Design a practical software architecture. "
+                    "Return ONLY JSON with keys plan (string) and files (array of relative paths). "
+                    "Do not include secrets or absolute paths."),
+                prompt=("Project: " + project.name + "
+Description: " + project.description +
+                        "
+Requirements: " + json.dumps(project.requirements)),
+                temperature=0.1, max_tokens=5000),
+            role="architect",
+        )
+        text = response.text.strip().removeprefix("```json").removesuffix("```").strip()
+        data = json.loads(text)
+        return ArchitectureResult(data["plan"], data.get("files", []))
+
+class TesterAgent:
+    def __init__(self, router: ModelRouter) -> None:
+        self.router = router
+
+    async def assess(self, project, files: list[str], test_output: str) -> str:
+        response = await self.router.generate(
+            ModelRequest(
+                system_prompt=("You are AstraForge Tester. Analyze test results and identify concrete "
+                    "failures or missing tests. Return concise actionable findings."),
+                prompt=("Project: " + project.name + "
+Files: " + json.dumps(files) +
+                        "
+Test output:
+" + test_output),
+                temperature=0.0, max_tokens=3000),
+            role="tester",
+        )
+        return response.text
+
+class ReviewerAgentV2:
+    def __init__(self, router: ModelRouter) -> None:
+        self.router = router
+
+    async def review_context(self, project, architecture: str, files: list[str], findings: str) -> str:
+        response = await self.router.generate(
+            ModelRequest(
+                system_prompt=("You are AstraForge Reviewer. Review implementation against architecture "
+                    "and requirements. Identify blocking correctness, security, maintainability, and "
+                    "coverage issues. Return actionable findings only."),
+                prompt=("Project: " + project.name + "
+Architecture:
+" + architecture +
+                        "
+Files: " + json.dumps(files) + "
+Tester findings:
+" + findings),
+                temperature=0.0, max_tokens=4000),
+            role="reviewer",
+        )
+        return response.text
