@@ -1,6 +1,7 @@
-"""Long-term memory for reusable engineering knowledge."""
+"""Persistent long-term memory with optional semantic retrieval."""
 
 import json
+import math
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,19 +19,26 @@ class MemoryStore:
                 content TEXT NOT NULL,
                 project_id TEXT,
                 created_at TEXT NOT NULL,
+                embedding TEXT,
                 UNIQUE(kind, key)
             )""")
+            columns = {row[1] for row in db.execute("PRAGMA table_info(memories)")}
+            if "embedding" not in columns:
+                db.execute("ALTER TABLE memories ADD COLUMN embedding TEXT")
             db.commit()
 
-    def remember(self, kind: str, key: str, content: dict | str, project_id: str | None = None) -> None:
+    def remember(self, kind: str, key: str, content: dict | str, project_id: str | None = None,
+                 embedding: list[float] | None = None) -> None:
         payload = content if isinstance(content, str) else json.dumps(content, ensure_ascii=False)
+        vector = json.dumps(embedding) if embedding else None
         with sqlite3.connect(self.path) as db:
             db.execute(
-                """INSERT INTO memories(kind,key,content,project_id,created_at)
-                   VALUES(?,?,?,?,?)
+                """INSERT INTO memories(kind,key,content,project_id,created_at,embedding)
+                   VALUES(?,?,?,?,?,?)
                    ON CONFLICT(kind,key) DO UPDATE SET
-                   content=excluded.content, project_id=excluded.project_id""",
-                (kind, key, payload, project_id, datetime.now(timezone.utc).isoformat()),
+                   content=excluded.content, project_id=excluded.project_id,
+                   created_at=excluded.created_at, embedding=excluded.embedding""",
+                (kind, key, payload, project_id, datetime.now(timezone.utc).isoformat(), vector),
             )
             db.commit()
 
@@ -48,8 +56,41 @@ class MemoryStore:
         args.append(limit)
         with sqlite3.connect(self.path) as db:
             rows = db.execute(sql, args).fetchall()
-        return [
-            {"id": r[0], "kind": r[1], "key": r[2], "content": r[3],
-             "project_id": r[4], "created_at": r[5]}
-            for r in rows
-        ]
+        return [self._row_to_dict(r) for r in rows]
+
+    def semantic_recall(self, embedding: list[float], kind: str | None = None,
+                        limit: int = 8, min_score: float = 0.35) -> list[dict]:
+        sql = "SELECT id,kind,key,content,project_id,created_at,embedding FROM memories WHERE embedding IS NOT NULL"
+        args = []
+        if kind:
+            sql += " AND kind=?"
+            args.append(kind)
+        with sqlite3.connect(self.path) as db:
+            rows = db.execute(sql, args).fetchall()
+
+        ranked = []
+        for row in rows:
+            vector = json.loads(row[6])
+            score = self._cosine(embedding, vector)
+            if score >= min_score:
+                item = self._row_to_dict(row[:6])
+                item["score"] = round(score, 6)
+                ranked.append(item)
+        ranked.sort(key=lambda item: item["score"], reverse=True)
+        return ranked[:limit]
+
+    @staticmethod
+    def _cosine(a: list[float], b: list[float]) -> float:
+        if not a or not b or len(a) != len(b):
+            return 0.0
+        numerator = sum(x * y for x, y in zip(a, b))
+        norm_a = math.sqrt(sum(x * x for x in a))
+        norm_b = math.sqrt(sum(y * y for y in b))
+        if norm_a == 0 or norm_b == 0:
+            return 0.0
+        return numerator / (norm_a * norm_b)
+
+    @staticmethod
+    def _row_to_dict(row) -> dict:
+        return {"id": row[0], "kind": row[1], "key": row[2], "content": row[3],
+                "project_id": row[4], "created_at": row[5]}
