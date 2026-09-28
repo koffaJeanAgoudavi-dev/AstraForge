@@ -1,6 +1,6 @@
 """API endpoints for starting orchestration runs."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from astraforge.agents.coder import CodingAgent
 from astraforge.agents.factory import build_router
@@ -31,11 +31,18 @@ def create_project_plan(project: ProjectSpec) -> dict:
 @router.post("/build")
 async def build_project(project: ProjectSpec) -> dict:
     state_store.save_project(project)
+    run_id = state_store.start_run(project.id, ["python", "-m", "pytest", "-q"])
     model_router = build_router()
     workspace_manager = WorkspaceManager()
     coder = CodingAgent(model_router, workspace_manager)
     pipeline = AutonomousPipeline(coder, workspace_manager, CommandRunner())
-    result = await pipeline.run(project, ["python", "-m", "pytest", "-q"])
+    try:
+        result = await pipeline.run(project, ["python", "-m", "pytest", "-q"])
+        state_store.update_run(run_id, stage="completed", status="completed", attempts=result.attempts)
+    except Exception as exc:
+        state_store.update_run(run_id, stage=project.status.value, status="failed", error=str(exc))
+        state_store.save_project(project)
+        raise
     state_store.save_project(project)
     return {
         "project_id": result.project_id,
@@ -44,4 +51,16 @@ async def build_project(project: ProjectSpec) -> dict:
         "files": result.files,
         "tests_passed": result.tests_passed,
         "repair_attempts": result.attempts,
+    }
+
+
+@router.get("/{project_id}")
+def get_project_state(project_id: str) -> dict:
+    project = state_store.get_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    run = state_store.get_latest_run(project_id)
+    return {
+        "project": project.model_dump(mode="json"),
+        "latest_run": run,
     }
