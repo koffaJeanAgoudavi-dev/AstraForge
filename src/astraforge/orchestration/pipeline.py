@@ -1,4 +1,4 @@
-"""End-to-end autonomous build and GitHub delivery pipeline."""
+"""Autonomous build, test, review and delivery pipeline."""
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -7,8 +7,8 @@ from astraforge.agents.coder import CodingAgent
 from astraforge.agents.reviewer import ReviewerAgent
 from astraforge.integrations.github import GitHubAdapter, PullRequestInfo
 from astraforge.orchestration.engine import Orchestrator
-from astraforge.orchestration.loop import BuildTestLoop, RepairAgent
 from astraforge.projects.schemas import ProjectSpec, ProjectStatus
+from astraforge.state.store import StateStore
 from astraforge.workspace.manager import WorkspaceManager
 from astraforge.workspace.runner import CommandRunner
 
@@ -21,22 +21,7 @@ class PipelineResult:
     tests_passed: bool
     attempts: int
     pull_request: PullRequestInfo | None = None
-
-
-class PipelineRepairAgent(RepairAgent):
-    def __init__(self, coder: CodingAgent, workspace: Path) -> None:
-        self.coder = coder
-        self.workspace = workspace
-
-    async def repair(self, failure) -> None:
-        instruction = (
-            "Repair the project based on this test failure. Return the complete replacement "
-            "contents for every file you change.\n\n"
-            f"Command: {' '.join(failure.command)}\n"
-            f"Exit code: {failure.return_code}\n"
-            f"STDOUT:\n{failure.stdout}\nSTDERR:\n{failure.stderr}"
-        )
-        await self.coder.implement(self.workspace, instruction)
+    resumed: bool = False
 
 
 class AutonomousPipeline:
@@ -49,6 +34,7 @@ class AutonomousPipeline:
         reviewer: ReviewerAgent | None = None,
         max_repairs: int = 3,
         max_review_repairs: int = 2,
+        state_store: StateStore | None = None,
     ) -> None:
         self.coder = coder
         self.workspace_manager = workspace_manager
@@ -57,65 +43,144 @@ class AutonomousPipeline:
         self.reviewer = reviewer
         self.max_repairs = max_repairs
         self.max_review_repairs = max_review_repairs
+        self.state_store = state_store
+        self.orchestrator = Orchestrator()
 
-    async def run(self, project: ProjectSpec, command: list[str]) -> PipelineResult:
-        project.status = ProjectStatus.BUILDING
-        workspace = self.workspace_manager.create(project.id)
-
-        plan = Orchestrator().create_plan(project)
-        developer_task = next(task for task in plan.tasks if task.role.value == "developer")
-        instruction = (
-            f"Project: {project.name}\nDescription: {project.description}\n"
-            f"Requirements: {project.requirements}\n"
-            f"Implementation task: {developer_task.instruction}\n"
-            "Generate a complete runnable project in the workspace."
+    def _existing_files(self, workspace: Path) -> list[str]:
+        return sorted(
+            str(path.relative_to(workspace))
+            for path in workspace.rglob("*")
+            if path.is_file()
         )
-        files = await self.coder.implement(workspace, instruction)
 
-        project.status = ProjectStatus.TESTING
-        loop = BuildTestLoop(self.runner, self.max_repairs)
-        result = await loop.run(workspace, command, PipelineRepairAgent(self.coder, workspace))
-        if not result.passed:
-            project.status = ProjectStatus.FAILED
-            return PipelineResult(project.id, workspace, files, False, result.attempts)
+    async def run(
+        self,
+        project: ProjectSpec,
+        command: list[str],
+        resume: bool = True,
+    ) -> PipelineResult:
+        self.state_store and self.state_store.save_project(project)
 
-        project.status = ProjectStatus.REVIEWING
-        if self.reviewer:
-            approved = False
-            for _ in range(self.max_review_repairs + 1):
-                review = await self.reviewer.review(workspace, files)
-                if review.approved:
-                    approved = True
-                    break
-                await self.coder.implement(workspace, 'Fix these blocking review findings:\n' + review.findings)
-                check = await self.runner.run(workspace, command)
-                if check.return_code != 0:
-                    project.status = ProjectStatus.FAILED
-                    return PipelineResult(project.id, workspace, files, False, result.attempts)
-            if not approved:
-                project.status = ProjectStatus.FAILED
-                return PipelineResult(project.id, workspace, files, False, result.attempts)
-        pull_request = None
-        if self.github:
-            github_branch = f"astraforge/{project.id}"
-            self.github.create_branch(github_branch)
-            for path in files:
-                content = self.workspace_manager.read_file(workspace, path)
-                self.github.commit_file(
-                    github_branch,
-                    path,
-                    content,
-                    f"feat: implement {project.name}",
+        resumable = (
+            self.state_store.find_resumable_run(project.id)
+            if self.state_store and resume
+            else None
+        )
+        resumed = resumable is not None
+
+        if resumable:
+            run_id = resumable["id"]
+            workspace = self.workspace_manager.create_project_workspace(project.id)
+            files = self._existing_files(workspace)
+            if not files:
+                resumed = False
+                self.state_store.update_run(
+                    run_id, stage="planning", status="running", attempts=0
                 )
-            pull_request = self.github.open_pull_request(
-                github_branch,
-                title=f"feat: AstraForge build — {project.name}",
-                body=(
-                    "Generated by AstraForge.\n\n"
-                    f"Project: {project.description}\n"
-                    f"Tests: passed after {result.attempts} repair attempt(s)."
-                ),
+        else:
+            run_id = (
+                self.state_store.start_run(project.id, command)
+                if self.state_store
+                else None
             )
+            workspace = self.workspace_manager.create_project_workspace(project.id)
+            files = []
 
-        project.status = ProjectStatus.COMPLETED
-        return PipelineResult(project.id, workspace, files, True, result.attempts, pull_request)
+        def checkpoint(stage: str, status: str = "running", attempts: int = 0, error=None):
+            if self.state_store and run_id is not None:
+                self.state_store.update_run(
+                    run_id, stage=stage, status=status, attempts=attempts, error=error
+                )
+
+        try:
+            if not files:
+                project.status = ProjectStatus.BUILDING
+                checkpoint("building")
+                plan = self.orchestrator.create_plan(project)
+                developer_task = next(
+                    task for task in plan.tasks if task.role.value == "developer"
+                )
+                files = await self.coder.implement(workspace, developer_task.instruction)
+            else:
+                project.status = ProjectStatus.TESTING
+
+            project.status = ProjectStatus.TESTING
+            checkpoint("testing")
+
+            from astraforge.orchestration.loop import BuildTestLoop, PipelineRepairAgent
+
+            repair_agent = PipelineRepairAgent(self.coder)
+            test_loop = BuildTestLoop(
+                self.runner,
+                repair_agent=repair_agent,
+                max_repairs=self.max_repairs,
+            )
+            test_result = await test_loop.run(workspace, command)
+            attempts = test_result.attempts
+            files = self._existing_files(workspace)
+
+            if not test_result.passed:
+                project.status = ProjectStatus.FAILED
+                checkpoint("testing", "failed", attempts, "Tests failed")
+                return PipelineResult(project.id, workspace, files, False, attempts, resumed=resumed)
+
+            project.status = ProjectStatus.REVIEWING
+            checkpoint("reviewing", attempts=attempts)
+
+            if self.reviewer:
+                for _ in range(self.max_review_repairs + 1):
+                    review = await self.reviewer.review(workspace, files)
+                    if review.approved:
+                        break
+                    await self.coder.implement(
+                        workspace,
+                        "Fix these blocking review findings and return complete replacement files:\n"
+                        + review.findings,
+                    )
+                    files = self._existing_files(workspace)
+                    test_result = await test_loop.run(workspace, command)
+                    attempts += test_result.attempts
+                    if not test_result.passed:
+                        project.status = ProjectStatus.FAILED
+                        checkpoint("testing", "failed", attempts, "Tests failed after review repair")
+                        return PipelineResult(
+                            project.id, workspace, files, False, attempts, resumed=resumed
+                        )
+                else:
+                    project.status = ProjectStatus.FAILED
+                    checkpoint("reviewing", "failed", attempts, "Review gate not approved")
+                    return PipelineResult(
+                        project.id, workspace, files, True, attempts, resumed=resumed
+                    )
+
+            pr = None
+            if self.github:
+                project.status = ProjectStatus.REVIEWING
+                checkpoint("github", attempts=attempts)
+                branch = f"astraforge/{project.id}"
+                self.github.create_branch(branch)
+                for file_path in files:
+                    self.github.commit_file(
+                        branch, file_path,
+                        self.workspace_manager.read_file(workspace, file_path),
+                        f"feat: add {file_path}",
+                    )
+                pr = self.github.open_pull_request(
+                    branch,
+                    title=f"feat: AstraForge build — {project.name}",
+                    body=(
+                        f"Generated by AstraForge.\n\n"
+                        f"Project: {project.description}\n"
+                        f"Tests passed: {test_result.passed}"
+                    ),
+                )
+
+            project.status = ProjectStatus.COMPLETED
+            checkpoint("completed", "completed", attempts)
+            return PipelineResult(
+                project.id, workspace, files, True, attempts, pr, resumed
+            )
+        except Exception as exc:
+            project.status = ProjectStatus.FAILED
+            checkpoint(project.status.value, "failed", 0, str(exc))
+            raise
