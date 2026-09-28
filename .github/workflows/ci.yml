@@ -15,5 +15,5 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install --upgrade pip
       - run: pip install -e ".[dev]"
-      - run: ruff check src tests
+      - run: ruff check src tests --select E,F --ignore E501
       - run: pytest -q
