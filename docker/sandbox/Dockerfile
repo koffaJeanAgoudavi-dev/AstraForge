@@ -5,5 +5,3 @@ RUN pip install --no-cache-dir pytest ruff
 RUN useradd --create-home --uid 10001 astrasandbox
 USER astrasandbox
 WORKDIR /workspace
-
-ENTRYPOINT ["/usr/local/bin/python"]
