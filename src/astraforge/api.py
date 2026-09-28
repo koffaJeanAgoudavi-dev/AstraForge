@@ -2,7 +2,8 @@
 
 import asyncio
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.responses import HTMLResponse
 
 from astraforge.agents.coder import CodingAgent
 from astraforge.agents.factory import build_router
@@ -11,6 +12,7 @@ from astraforge.config import settings
 from astraforge.integrations.github import GitHubAdapter
 from astraforge.integrations.deployment import build_deployer
 from astraforge.orchestration.engine import Orchestrator
+from astraforge.orchestration.events import build_events
 from astraforge.orchestration.pipeline import AutonomousPipeline
 from astraforge.projects.schemas import ProjectSpec
 from astraforge.state.store import StateStore
@@ -20,6 +22,9 @@ from astraforge.workspace.runner import DockerCommandRunner
 router = APIRouter(prefix="/projects", tags=["projects"])
 orchestrator = Orchestrator()
 state_store = StateStore()
+
+CONTROL_UI = "<!doctype html><html lang=\"fr\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>AstraForge Control</title><style>body{font-family:system-ui;margin:0;background:#0f1115;color:#eee}main{max-width:900px;margin:40px auto;padding:20px}input,textarea,button{width:100%;box-sizing:border-box;margin:8px 0;padding:12px;border-radius:8px;border:1px solid #333;background:#191c23;color:#fff}button{cursor:pointer;background:#2563eb;border:0}pre{white-space:pre-wrap;background:#090b0f;padding:14px;border-radius:8px}</style></head><body><main><h1>AstraForge</h1><p>Control Center</p><input id=\"name\" placeholder=\"Nom du projet\"><textarea id=\"description\" placeholder=\"Décris le SaaS à construire\"></textarea><textarea id=\"requirements\" placeholder=\"Une exigence par ligne\"></textarea><button onclick=\"build()\">Construire et suivre</button><p id=\"status\"></p><pre id=\"log\"></pre><script>let ws;function log(x){document.getElementById(\"log\").textContent+=x+\"\\n\"}async function build(){const id=crypto.randomUUID();const project={id:id,name:document.getElementById(\"name\").value||\"AstraForge project\",description:document.getElementById(\"description\").value,requirements:document.getElementById(\"requirements\").value.split(\"\\n\").filter(Boolean)};ws=new WebSocket((location.protocol===\"https:\"?\"wss://\":\"ws://\")+location.host+\"/projects/\"+id+\"/events\");ws.onmessage=e=>{const x=JSON.parse(e.data);document.getElementById(\"status\").textContent=x.stage||x.type;log(JSON.stringify(x))};ws.onopen=async()=>{const r=await fetch(\"/projects/build?publish=false&deploy=false\",{method:\"POST\",headers:{\"Content-Type\":\"application/json\"},body:JSON.stringify(project)});log(JSON.stringify(await r.json(),null,2))}}</script></main></body></html>"
+
 
 
 @router.post("/plan")
@@ -98,3 +103,20 @@ def get_project_state(project_id: str) -> dict:
         raise HTTPException(status_code=404, detail="Project not found")
     run = state_store.get_latest_run(project_id)
     return {"project": project.model_dump(mode="json"), "latest_run": run}
+
+
+@router.get("/control", response_class=HTMLResponse, include_in_schema=False)
+def control_center() -> str:
+    return CONTROL_UI
+
+
+@router.websocket("/{project_id}/events")
+async def project_events(websocket: WebSocket, project_id: str) -> None:
+    await websocket.accept()
+    try:
+        async for event in build_events.subscribe(project_id):
+            await websocket.send_json(event)
+            if event.get("status") in {"completed", "failed"}:
+                break
+    except WebSocketDisconnect:
+        return
