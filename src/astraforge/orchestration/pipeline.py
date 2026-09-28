@@ -5,6 +5,7 @@ from pathlib import Path
 
 from astraforge.agents.coder import CodingAgent
 from astraforge.agents.reviewer import ReviewerAgent
+from astraforge.agents.roles import ArchitectAgent, TesterAgent, ReviewerAgentV2
 from astraforge.integrations.github import GitHubAdapter, PullRequestInfo
 from astraforge.orchestration.engine import Orchestrator
 from astraforge.projects.schemas import ProjectSpec, ProjectStatus
@@ -44,6 +45,9 @@ class AutonomousPipeline:
         self.max_repairs = max_repairs
         self.max_review_repairs = max_review_repairs
         self.state_store = state_store
+        self.architect = ArchitectAgent(coder.router)
+        self.tester = TesterAgent(coder.router)
+        self.context_reviewer = ReviewerAgentV2(coder.router)
         self.orchestrator = Orchestrator()
 
     def _existing_files(self, workspace: Path) -> list[str]:
@@ -96,11 +100,13 @@ class AutonomousPipeline:
             if not files:
                 project.status = ProjectStatus.BUILDING
                 checkpoint("building")
+                architecture = await self.architect.design(project)
                 plan = self.orchestrator.create_plan(project)
                 developer_task = next(
                     task for task in plan.tasks if task.role.value == "developer"
                 )
-                files = await self.coder.implement(workspace, developer_task.instruction)
+                developer_instruction = developer_task.instruction + "\n\nARCHITECTURE:\n" + architecture.plan
+                files = await self.coder.implement(workspace, developer_instruction)
             else:
                 project.status = ProjectStatus.TESTING
 
@@ -120,16 +126,22 @@ class AutonomousPipeline:
             files = self._existing_files(workspace)
 
             if not test_result.passed:
+                tester_findings = await self.tester.assess(project, files, test_result.stderr + "\n" + test_result.stdout)
                 project.status = ProjectStatus.FAILED
                 checkpoint("testing", "failed", attempts, "Tests failed")
                 return PipelineResult(project.id, workspace, files, False, attempts, resumed=resumed)
 
             project.status = ProjectStatus.REVIEWING
             checkpoint("reviewing", attempts=attempts)
+            tester_findings = await self.tester.assess(project, files, test_result.stderr + "\n" + test_result.stdout)
+            architecture_text = locals().get("architecture").plan if "architecture" in locals() else "Architecture context unavailable"
+            context_findings = await self.context_reviewer.review_context(project, architecture_text, files, tester_findings)
 
             if self.reviewer:
                 for _ in range(self.max_review_repairs + 1):
                     review = await self.reviewer.review(workspace, files)
+                    if context_findings.strip():
+                        context_findings = await self.context_reviewer.review_context(project, architecture_text, files, context_findings)
                     if review.approved:
                         break
                     await self.coder.implement(
