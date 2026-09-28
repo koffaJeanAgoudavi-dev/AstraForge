@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass, field
 
+from astraforge.memory.store import MemoryStore
+
 
 @dataclass
 class ExecutionContext:
@@ -14,6 +16,7 @@ class ExecutionContext:
     reviewer_findings: list[str] = field(default_factory=list)
     repairs: list[dict] = field(default_factory=list)
     decisions: list[str] = field(default_factory=list)
+    memories: list[dict] = field(default_factory=list)
 
     def record_test(self, passed: bool, attempts: int, stdout: str = "", stderr: str = "") -> None:
         self.test_results.append({
@@ -25,6 +28,10 @@ class ExecutionContext:
 
     def record_repair(self, source: str, details: str) -> None:
         self.repairs.append({"source": source, "details": details[-6000:]})
+
+    def add_memory(self, memory: dict) -> None:
+        if memory and memory not in self.memories:
+            self.memories.append(memory)
 
     def add_decision(self, decision: str) -> None:
         if decision and decision not in self.decisions:
@@ -41,6 +48,7 @@ class ExecutionContext:
             "reviewer_findings": self.reviewer_findings,
             "repairs": self.repairs,
             "decisions": self.decisions,
+            "memories": self.memories,
         }
 
     def prompt(self) -> str:
