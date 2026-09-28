@@ -7,6 +7,7 @@ from astraforge.agents.coder import CodingAgent
 from astraforge.agents.reviewer import ReviewerAgent
 from astraforge.agents.roles import ArchitectAgent, TesterAgent, ReviewerAgentV2
 from astraforge.integrations.github import GitHubAdapter, PullRequestInfo
+from astraforge.integrations.deployment import DeploymentResult
 from astraforge.memory.embeddings import build_embedding_provider
 from astraforge.memory.store import MemoryStore
 from astraforge.orchestration.context import ExecutionContext
@@ -25,6 +26,7 @@ class PipelineResult:
     tests_passed: bool
     attempts: int
     pull_request: PullRequestInfo | None = None
+    deployment: DeploymentResult | None = None
     resumed: bool = False
 
 
@@ -39,6 +41,7 @@ class AutonomousPipeline:
         max_repairs: int = 3,
         max_review_repairs: int = 2,
         state_store: StateStore | None = None,
+        deployer=None,
     ) -> None:
         self.coder = coder
         self.workspace_manager = workspace_manager
@@ -48,6 +51,7 @@ class AutonomousPipeline:
         self.max_repairs = max_repairs
         self.max_review_repairs = max_review_repairs
         self.state_store = state_store
+        self.deployer = deployer
         self.architect = ArchitectAgent(coder.router)
         self.tester = TesterAgent(coder.router)
         self.context_reviewer = ReviewerAgentV2(coder.router)
@@ -248,6 +252,12 @@ class AutonomousPipeline:
                     ),
                 )
 
+            deployment = None
+            if self.deployer:
+                checkpoint("deploying", attempts=attempts)
+                deployment = await __import__("asyncio").to_thread(self.deployer.deploy, workspace)
+                context.add_decision(f"Deployment completed: {deployment.url}")
+
             outcome_text = f"{project.name}\n{project.description}\n{files}\n{context.decisions}"
             self.memory.remember(
                 "build_outcome",
@@ -258,7 +268,7 @@ class AutonomousPipeline:
             )
             project.status = ProjectStatus.COMPLETED
             checkpoint("completed", "completed", attempts)
-            return PipelineResult(project.id, workspace, files, True, attempts, pr, resumed)
+            return PipelineResult(project.id, workspace, files, True, attempts, pr, deployment, resumed)
 
         except Exception as exc:
             project.status = ProjectStatus.FAILED
