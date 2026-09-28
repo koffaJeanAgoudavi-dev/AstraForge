@@ -1,5 +1,6 @@
 """API endpoints for starting orchestration runs."""
 
+import asyncio
 import secrets
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
@@ -46,9 +47,12 @@ def create_project_plan(project: ProjectSpec, _: None = Depends(require_api_key)
     }
 
 
-@router.post("/build")
-async def build_project(project: ProjectSpec, publish: bool = False, deploy: bool = False, _: None = Depends(require_api_key)) -> dict:
-    state_store.save_project(project)
+async def _run_pipeline_in_background(
+    project: ProjectSpec,
+    run_id: int,
+    publish: bool,
+    deploy: bool,
+) -> None:
     model_router = build_router()
     workspace_manager = WorkspaceManager()
     coder = CodingAgent(model_router, workspace_manager)
@@ -57,19 +61,9 @@ async def build_project(project: ProjectSpec, publish: bool = False, deploy: boo
     github = None
     deployer = None
     if publish:
-        if not settings.github_token or not settings.github_repository:
-            raise HTTPException(
-                status_code=400,
-                detail="GitHub publishing requires GITHUB_TOKEN and GITHUB_REPOSITORY",
-            )
         github = GitHubAdapter(settings.github_token, settings.github_repository)
-
     if deploy:
-        if not publish:
-            raise HTTPException(status_code=400, detail="Deployment requires publish=true")
         deployer = build_deployer()
-        if deployer is None:
-            raise HTTPException(status_code=400, detail="Cloudflare deployment requires CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_PAGES_PROJECT")
 
     pipeline = AutonomousPipeline(
         coder,
@@ -80,28 +74,57 @@ async def build_project(project: ProjectSpec, publish: bool = False, deploy: boo
         state_store=state_store,
         deployer=deployer,
     )
-    result = await pipeline.run(project, ["python", "-m", "pytest", "-q"])
+    try:
+        await pipeline.run(
+            project,
+            ["python", "-m", "pytest", "-q"],
+            resume=False,
+            run_id=run_id,
+        )
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        # Pipeline persists the failed run state; isolate the exception from the HTTP request.
+        return
+    finally:
+        state_store.save_project(project)
+
+
+@router.post("/build")
+async def build_project(
+    project: ProjectSpec,
+    publish: bool = False,
+    deploy: bool = False,
+    _: None = Depends(require_api_key),
+) -> dict:
     state_store.save_project(project)
 
-    response = {
-        "project_id": result.project_id,
-        "status": project.status,
-        "workspace": str(result.workspace),
-        "files": result.files,
-        "tests_passed": result.tests_passed,
-        "repair_attempts": result.attempts,
-        "resumed": result.resumed,
-    }
-    if result.pull_request:
-        response["pull_request"] = {
-            "number": result.pull_request.number,
-            "url": result.pull_request.url,
-            "branch": result.pull_request.branch,
-        }
-    if result.deployment:
-        response["deployment"] = {"provider": result.deployment.provider, "url": result.deployment.url}
-    return response
+    if publish and (not settings.github_token or not settings.github_repository):
+        raise HTTPException(
+            status_code=400,
+            detail="GitHub publishing requires GITHUB_TOKEN and GITHUB_REPOSITORY",
+        )
 
+    if deploy:
+        if not publish:
+            raise HTTPException(status_code=400, detail="Deployment requires publish=true")
+        if build_deployer() is None:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Cloudflare deployment requires CLOUDFLARE_API_TOKEN, "
+                    "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_PAGES_PROJECT"
+                ),
+            )
+
+    run_id = state_store.start_run(project.id, ["python", "-m", "pytest", "-q"])
+    asyncio.create_task(_run_pipeline_in_background(project, run_id, publish, deploy))
+    return {
+        "project_id": project.id,
+        "run_id": run_id,
+        "status": "started",
+        "message": "Build started in background. Follow events with the run/event endpoints.",
+    }
 
 
 @router.get("/{project_id}/runs")
