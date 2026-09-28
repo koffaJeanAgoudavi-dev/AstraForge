@@ -82,14 +82,18 @@ class AutonomousPipeline:
                 return results
         return self.memory.recall(limit=8)
 
-    async def run(self, project: ProjectSpec, command: list[str], resume: bool = True) -> PipelineResult:
+    async def run(self, project: ProjectSpec, command: list[str], resume: bool = True, run_id: int | None = None) -> PipelineResult:
         if self.state_store:
             self.state_store.save_project(project)
 
         resumable = (
-            self.state_store.find_resumable_run(project.id)
-            if self.state_store and resume
-            else None
+            self.state_store.get_run(run_id)
+            if self.state_store and run_id is not None
+            else (
+                self.state_store.find_resumable_run(project.id)
+                if self.state_store and resume
+                else None
+            )
         )
         resumed = resumable is not None
         context = ExecutionContext(project.id, requirements=list(project.requirements))
