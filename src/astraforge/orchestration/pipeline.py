@@ -1,6 +1,8 @@
 """Autonomous build, test, review and delivery pipeline."""
 
 from dataclasses import dataclass
+
+import asyncio
 from pathlib import Path
 
 from astraforge.agents.coder import CodingAgent
@@ -113,17 +115,31 @@ class AutonomousPipeline:
             workspace = self.workspace_manager.create_project_workspace(project.id)
             files = []
 
-        async def checkpoint(stage: str, status: str = "running", attempts: int = 0, error: str | None = None):
+        async def checkpoint(stage: str, status: str = "running", attempts: int = 0, error: str | None = None, message: str | None = None):
+            event = None
             if self.state_store and run_id is not None:
                 self.state_store.update_run(
                     run_id, stage=stage, status=status, attempts=attempts,
                     error=error, context=context.snapshot(),
                 )
-            await build_events.publish(project.id, {"type": "stage", "stage": stage, "status": status, "attempts": attempts, "error": error})
+                event = self.state_store.append_event(
+                    project.id, stage, status, message or error, {"attempts": attempts}, run_id
+                )
+            if event is None:
+                event = {"type": "stage", "stage": stage, "status": status, "attempts": attempts, "error": error}
+            await build_events.publish(project.id, event)
+
+        async def check_cancelled() -> None:
+            if self.state_store and run_id is not None and self.state_store.is_cancel_requested(run_id):
+                project.status = ProjectStatus.CANCELLED
+                await checkpoint("cancelled", "cancelled", 0, "Build cancelled by user")
+                raise asyncio.CancelledError
 
         try:
+            await check_cancelled()
             architecture_text = context.architecture
             if not files:
+                await check_cancelled()
                 project.status = ProjectStatus.BUILDING
                 await checkpoint("building")
                 architecture = await self.architect.design(project)
@@ -156,6 +172,7 @@ class AutonomousPipeline:
             else:
                 architecture_text = context.architecture
 
+            await check_cancelled()
             project.status = ProjectStatus.TESTING
             await checkpoint("testing")
 
@@ -187,6 +204,7 @@ class AutonomousPipeline:
                 await checkpoint("testing", "failed", attempts, "Tests failed")
                 return PipelineResult(project.id, workspace, files, False, attempts, resumed=resumed)
 
+            await check_cancelled()
             project.status = ProjectStatus.REVIEWING
             await checkpoint("reviewing", attempts=attempts)
             context_findings = await self.context_reviewer.review_context(
@@ -233,6 +251,7 @@ class AutonomousPipeline:
                     return PipelineResult(project.id, workspace, files, True, attempts, resumed=resumed)
 
             pr = None
+            await check_cancelled()
             if self.github:
                 await checkpoint("github", attempts=attempts)
                 branch = f"astraforge/{project.id}"
@@ -255,6 +274,7 @@ class AutonomousPipeline:
                 )
 
             deployment = None
+            await check_cancelled()
             if self.deployer:
                 await checkpoint("deploying", attempts=attempts)
                 deployment = await __import__("asyncio").to_thread(self.deployer.deploy, workspace)
@@ -272,6 +292,11 @@ class AutonomousPipeline:
             await checkpoint("completed", "completed", attempts)
             return PipelineResult(project.id, workspace, files, True, attempts, pr, deployment, resumed)
 
+        except asyncio.CancelledError:
+            if project.status != ProjectStatus.CANCELLED:
+                project.status = ProjectStatus.CANCELLED
+                await checkpoint("cancelled", "cancelled", 0, "Build cancelled by user")
+            return PipelineResult(project.id, workspace, self._existing_files(workspace), False, 0, resumed=resumed)
         except Exception as exc:
             project.status = ProjectStatus.FAILED
             await checkpoint(project.status.value, "failed", 0, str(exc))
