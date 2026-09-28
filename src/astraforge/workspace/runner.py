@@ -42,7 +42,7 @@ class DockerCommandRunner:
 
     def __init__(
         self,
-        image: str = "python:3.12-slim",
+        image: str = "astraforge-sandbox:latest",
         allowed_commands: set[str] | None = None,
         memory: str = "512m",
         cpus: str = "1.0",
