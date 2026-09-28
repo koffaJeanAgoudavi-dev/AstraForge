@@ -31,7 +31,65 @@ def require_api_key(x_astraforge_key: str | None = Header(default=None)) -> None
     if not x_astraforge_key or not secrets.compare_digest(x_astraforge_key, settings.astraforge_api_key):
         raise HTTPException(status_code=401, detail="Invalid or missing AstraForge API key")
 
-CONTROL_UI = "<!doctype html><html lang=\"fr\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>AstraForge Control</title><style>body{font-family:system-ui;margin:0;background:#0f1115;color:#eee}main{max-width:900px;margin:40px auto;padding:20px}input,textarea,button{width:100%;box-sizing:border-box;margin:8px 0;padding:12px;border-radius:8px;border:1px solid #333;background:#191c23;color:#fff}button{cursor:pointer;background:#2563eb;border:0}pre{white-space:pre-wrap;background:#090b0f;padding:14px;border-radius:8px}</style></head><body><main><h1>AstraForge</h1><p>Control Center</p><input id=\"name\" placeholder=\"Nom du projet\"><textarea id=\"description\" placeholder=\"Décris le SaaS à construire\"></textarea><textarea id=\"requirements\" placeholder=\"Une exigence par ligne\"></textarea><button onclick=\"build()\">Construire et suivre</button><p id=\"status\"></p><pre id=\"log\"></pre><script>const key=new URLSearchParams(location.search).get("key")||"";let ws;function log(x){document.getElementById(\"log\").textContent+=x+\"\\n\"}async function build(){const id=crypto.randomUUID();const project={id:id,name:document.getElementById(\"name\").value||\"AstraForge project\",description:document.getElementById(\"description\").value,requirements:document.getElementById(\"requirements\").value.split(\"\\n\").filter(Boolean)};ws=new WebSocket((location.protocol===\"https:\"?\"wss://\":\"ws://\")+location.host+\"/projects/\"+id+\"/events\");ws.onmessage=e=>{const x=JSON.parse(e.data);document.getElementById(\"status\").textContent=x.stage||x.type;log(JSON.stringify(x))};ws.onopen=async()=>{const r=await fetch(\"/projects/build?publish=false&deploy=false\",{method:\"POST\",headers:{\"Content-Type\":\"application/json\"},body:JSON.stringify(project)});log(JSON.stringify(await r.json(),null,2))}}</script></main></body></html>"
+CONTROL_UI = '''<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AstraForge Control</title>
+<style>
+body{font-family:system-ui;margin:0;background:#0f1115;color:#eee}
+main{max-width:900px;margin:40px auto;padding:20px}
+input,textarea,button{width:100%;box-sizing:border-box;margin:8px 0;padding:12px;border-radius:8px;border:1px solid #333;background:#191c23;color:#fff}
+button{cursor:pointer;background:#2563eb;border:0}
+pre{white-space:pre-wrap;background:#090b0f;padding:14px;border-radius:8px}
+</style>
+</head>
+<body>
+<main>
+<h1>AstraForge</h1>
+<p>Control Center</p>
+<input id="name" placeholder="Nom du projet">
+<textarea id="description" placeholder="Décris le SaaS à construire"></textarea>
+<textarea id="requirements" placeholder="Une exigence par ligne"></textarea>
+<button onclick="build()">Construire et suivre</button>
+<p id="status"></p>
+<pre id="log"></pre>
+<script>
+const key = new URLSearchParams(location.search).get("key") || "";
+let ws;
+function log(x) {
+  document.getElementById("log").textContent += x + String.fromCharCode(10);
+}
+async function build() {
+  const id = crypto.randomUUID();
+  const project = {
+    id,
+    name: document.getElementById("name").value || "AstraForge project",
+    description: document.getElementById("description").value,
+    requirements: document.getElementById("requirements").value.split(String.fromCharCode(10)).filter(Boolean)
+  };
+  const wsProtocol = location.protocol === "https:" ? "wss://" : "ws://";
+  const token = key ? "?token=" + encodeURIComponent(key) : "";
+  ws = new WebSocket(wsProtocol + location.host + "/projects/" + id + "/events" + token);
+  ws.onmessage = event => {
+    const data = JSON.parse(event.data);
+    document.getElementById("status").textContent = data.stage || data.type || data.status;
+    log(JSON.stringify(data));
+  };
+  ws.onopen = async () => {
+    const response = await fetch("/projects/build?publish=false&deploy=false", {
+      method: "POST",
+      headers: {"Content-Type": "application/json", ...(key ? {"X-AstraForge-Key": key} : {})},
+      body: JSON.stringify(project)
+    });
+    log(JSON.stringify(await response.json(), null, 2));
+  };
+}
+</script>
+</main>
+</body>
+</html>'''
 
 
 
