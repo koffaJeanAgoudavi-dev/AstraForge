@@ -14,7 +14,7 @@ from astraforge.orchestration.pipeline import AutonomousPipeline
 from astraforge.projects.schemas import ProjectSpec
 from astraforge.state.store import StateStore
 from astraforge.workspace.manager import WorkspaceManager
-from astraforge.workspace.runner import CommandRunner
+from astraforge.workspace.runner import DockerCommandRunner
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 orchestrator = Orchestrator()
@@ -53,7 +53,7 @@ async def build_project(project: ProjectSpec, publish: bool = False) -> dict:
     pipeline = AutonomousPipeline(
         coder,
         workspace_manager,
-        CommandRunner(),
+        DockerCommandRunner(),
         github=github,
         reviewer=reviewer,
         state_store=state_store,
