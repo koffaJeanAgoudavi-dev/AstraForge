@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     api_host: str = "127.0.0.1"
     api_port: int = 8000
+    astraforge_api_key: str | None = None
 
     groq_api_key: str | None = None
     groq_default_model: str = "llama-3.3-70b-versatile"
