@@ -31,18 +31,11 @@ def create_project_plan(project: ProjectSpec) -> dict:
 @router.post("/build")
 async def build_project(project: ProjectSpec) -> dict:
     state_store.save_project(project)
-    run_id = state_store.start_run(project.id, ["python", "-m", "pytest", "-q"])
     model_router = build_router()
     workspace_manager = WorkspaceManager()
     coder = CodingAgent(model_router, workspace_manager)
-    pipeline = AutonomousPipeline(coder, workspace_manager, CommandRunner())
-    try:
-        result = await pipeline.run(project, ["python", "-m", "pytest", "-q"])
-        state_store.update_run(run_id, stage="completed", status="completed", attempts=result.attempts)
-    except Exception as exc:
-        state_store.update_run(run_id, stage=project.status.value, status="failed", error=str(exc))
-        state_store.save_project(project)
-        raise
+    pipeline = AutonomousPipeline(coder, workspace_manager, CommandRunner(), state_store=state_store)
+    result = await pipeline.run(project, ["python", "-m", "pytest", "-q"])
     state_store.save_project(project)
     return {
         "project_id": result.project_id,
