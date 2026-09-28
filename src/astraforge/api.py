@@ -155,6 +155,11 @@ async def resume_project(project_id: str, publish: bool = False, deploy: bool = 
     return await build_project(project, publish=publish, deploy=deploy, _=None)
 
 
+@router.get("/control", response_class=HTMLResponse, include_in_schema=False)
+def control_center() -> str:
+    return CONTROL_UI
+
+
 @router.get("/{project_id}")
 def get_project_state(project_id: str, _: None = Depends(require_api_key)) -> dict:
     project = state_store.get_project(project_id)
