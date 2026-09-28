@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from astraforge.agents.coder import CodingAgent
+from astraforge.agents.reviewer import ReviewerAgent
 from astraforge.integrations.github import GitHubAdapter, PullRequestInfo
 from astraforge.orchestration.engine import Orchestrator
 from astraforge.orchestration.loop import BuildTestLoop, RepairAgent
@@ -45,13 +46,17 @@ class AutonomousPipeline:
         workspace_manager: WorkspaceManager,
         runner: CommandRunner,
         github: GitHubAdapter | None = None,
+        reviewer: ReviewerAgent | None = None,
         max_repairs: int = 3,
+        max_review_repairs: int = 2,
     ) -> None:
         self.coder = coder
         self.workspace_manager = workspace_manager
         self.runner = runner
         self.github = github
+        self.reviewer = reviewer
         self.max_repairs = max_repairs
+        self.max_review_repairs = max_review_repairs
 
     async def run(self, project: ProjectSpec, command: list[str]) -> PipelineResult:
         project.status = ProjectStatus.BUILDING
@@ -75,6 +80,21 @@ class AutonomousPipeline:
             return PipelineResult(project.id, workspace, files, False, result.attempts)
 
         project.status = ProjectStatus.REVIEWING
+        if self.reviewer:
+            approved = False
+            for _ in range(self.max_review_repairs + 1):
+                review = await self.reviewer.review(workspace, files)
+                if review.approved:
+                    approved = True
+                    break
+                await self.coder.implement(workspace, 'Fix these blocking review findings:\n' + review.findings)
+                check = await self.runner.run(workspace, command)
+                if check.return_code != 0:
+                    project.status = ProjectStatus.FAILED
+                    return PipelineResult(project.id, workspace, files, False, result.attempts)
+            if not approved:
+                project.status = ProjectStatus.FAILED
+                return PipelineResult(project.id, workspace, files, False, result.attempts)
         pull_request = None
         if self.github:
             github_branch = f"astraforge/{project.id}"
