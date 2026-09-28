@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 
 from github import Github
-from github.GithubException import UnknownObjectException
+from github.GithubException import GithubException, UnknownObjectException
 
 
 @dataclass(frozen=True)
@@ -23,6 +23,11 @@ class GitHubAdapter:
         self.repository = self.client.get_repo(repository)
 
     def create_branch(self, branch: str, base_branch: str = "main") -> None:
+        try:
+            self.repository.get_branch(branch)
+            return
+        except UnknownObjectException:
+            pass
         base = self.repository.get_branch(base_branch)
         self.repository.create_git_ref(ref=f"refs/heads/{branch}", sha=base.commit.sha)
 
@@ -34,6 +39,8 @@ class GitHubAdapter:
             return
         if isinstance(existing, list):
             raise ValueError(f"Expected a file, got a directory: {path}")
+        if existing.decoded_content.decode("utf-8") == content:
+            return
         self.repository.update_file(path, message, content, existing.sha, branch=branch)
 
     def open_pull_request(
@@ -43,5 +50,11 @@ class GitHubAdapter:
         title: str = "AstraForge generated changes",
         body: str = "Generated and reviewed by AstraForge.",
     ) -> PullRequestInfo:
+        try:
+            prs = self.repository.get_pulls(state="open", head=f"{self.repository.owner.login}:{branch}", base=base_branch)
+            for pr in prs:
+                return PullRequestInfo(pr.number, pr.html_url, branch)
+        except GithubException:
+            pass
         pr = self.repository.create_pull(title=title, body=body, head=branch, base=base_branch)
         return PullRequestInfo(pr.number, pr.html_url, branch)
