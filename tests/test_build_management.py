@@ -1,4 +1,4 @@
-from astraforge.projects.schemas import ProjectSpec, ProjectStatus
+from astraforge.projects.schemas import ProjectSpec
 from astraforge.state.store import StateStore
 
 
