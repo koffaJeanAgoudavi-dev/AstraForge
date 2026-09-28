@@ -164,18 +164,47 @@ def cancel_project_run(project_id: str, run_id: int, _: None = Depends(require_a
 
 
 @router.post("/{project_id}/resume")
-async def resume_project(project_id: str, publish: bool = False, deploy: bool = False,
-                         _: None = Depends(require_api_key)) -> dict:
+async def resume_project(
+    project_id: str,
+    publish: bool = False,
+    deploy: bool = False,
+    _: None = Depends(require_api_key),
+) -> dict:
     project = state_store.get_project(project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
     latest = state_store.get_latest_run(project_id)
-    if latest and latest["status"] == "cancelled":
-        if not state_store.resume_run(latest["id"]):
-            raise HTTPException(status_code=409, detail="Run cannot be resumed")
-    elif not latest:
-        raise HTTPException(status_code=409, detail="No previous run to resume")
-    return await build_project(project, publish=publish, deploy=deploy, _=None)
+    if not latest or latest["status"] != "cancelled":
+        raise HTTPException(status_code=409, detail="No cancelled run to resume")
+
+    if publish and (not settings.github_token or not settings.github_repository):
+        raise HTTPException(
+            status_code=400,
+            detail="GitHub publishing requires GITHUB_TOKEN and GITHUB_REPOSITORY",
+        )
+    if deploy:
+        if not publish:
+            raise HTTPException(status_code=400, detail="Deployment requires publish=true")
+        if build_deployer() is None:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Cloudflare deployment requires CLOUDFLARE_API_TOKEN, "
+                    "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_PAGES_PROJECT"
+                ),
+            )
+
+    if not state_store.resume_run(latest["id"]):
+        raise HTTPException(status_code=409, detail="Run cannot be resumed")
+    asyncio.create_task(
+        _run_pipeline_in_background(project, latest["id"], publish, deploy)
+    )
+    return {
+        "project_id": project_id,
+        "run_id": latest["id"],
+        "status": "resumed",
+        "message": "Build resumed in background.",
+    }
 
 
 @router.get("/control", response_class=HTMLResponse, include_in_schema=False)
