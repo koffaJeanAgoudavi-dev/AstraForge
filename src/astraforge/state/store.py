@@ -98,6 +98,15 @@ class StateStore:
             db.commit()
             return cur.rowcount == 1
 
+    def resume_run(self, run_id: int) -> bool:
+        with self._connect() as db:
+            cur = db.execute(
+                "UPDATE runs SET status='running',cancel_requested=0,error=NULL,updated_at=? WHERE id=? AND status='cancelled'",
+                (datetime.now(timezone.utc).isoformat(), run_id),
+            )
+            db.commit()
+            return cur.rowcount == 1
+
     def is_cancel_requested(self, run_id: int) -> bool:
         with self._connect() as db:
             row = db.execute("SELECT cancel_requested FROM runs WHERE id=?", (run_id,)).fetchone()
