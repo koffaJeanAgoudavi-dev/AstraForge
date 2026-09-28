@@ -13,13 +13,13 @@ class Settings(BaseSettings):
     groq_api_key: str | None = None
     groq_default_model: str = "llama-3.3-70b-versatile"
     gemini_api_key: str | None = None
-    gemini_default_model: str = "gemini-2.5-flash"
+    gemini_default_model: str = "gemini-3.8-flash"
     deepseek_api_key: str | None = None
-    deepseek_default_model: str = "deepseek-chat"
+    deepseek_default_model: str = "deepseek-flash"
     openai_api_key: str | None = None
-    openai_default_model: str = "gpt-4.1-mini"
+    openai_default_model: str = "gpt-5.6-terra"
     mistral_api_key: str | None = None
-    mistral_default_model: str = "mistral-large-latest"
+    mistral_default_model: str = "mistral-medium-3.5"
     cerebras_api_key: str | None = None
     cerebras_default_model: str = "gpt-oss-120b"
 
