@@ -169,11 +169,6 @@ def get_project_state(project_id: str, _: None = Depends(require_api_key)) -> di
     return {"project": project.model_dump(mode="json"), "latest_run": run}
 
 
-@router.get("/control", response_class=HTMLResponse, include_in_schema=False)
-def control_center() -> str:
-    return CONTROL_UI
-
-
 @router.websocket("/{project_id}/events")
 async def project_events(websocket: WebSocket, project_id: str, token: str | None = Query(default=None)) -> None:
     if settings.astraforge_api_key:
