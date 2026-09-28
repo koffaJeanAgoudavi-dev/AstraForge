@@ -22,7 +22,7 @@ class GeminiEmbeddingProvider(EmbeddingProvider):
         if not settings.gemini_api_key:
             raise ValueError("GEMINI_API_KEY is required for semantic memory")
         self.client = genai.Client(api_key=settings.gemini_api_key)
-        self.model = model
+        self.model = model or settings.gemini_embedding_model
 
     async def embed(self, text: str) -> list[float]:
         result = await self.client.aio.models.embed_content(
