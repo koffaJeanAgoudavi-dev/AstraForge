@@ -10,11 +10,6 @@ app = FastAPI(title=settings.app_name, version=__version__)
 app.include_router(router)
 
 
-#
-
-app = FastAPI(title=settings.app_name, version=__version__)
-
-
 @app.get("/health", tags=["system"])
 def health_check() -> dict[str, str]:
     """Return a lightweight service health response."""
