@@ -9,6 +9,7 @@ from astraforge.agents.factory import build_router
 from astraforge.agents.reviewer import ReviewerAgent
 from astraforge.config import settings
 from astraforge.integrations.github import GitHubAdapter
+from astraforge.integrations.deployment import build_deployer
 from astraforge.orchestration.engine import Orchestrator
 from astraforge.orchestration.pipeline import AutonomousPipeline
 from astraforge.projects.schemas import ProjectSpec
@@ -34,7 +35,7 @@ def create_project_plan(project: ProjectSpec) -> dict:
 
 
 @router.post("/build")
-async def build_project(project: ProjectSpec, publish: bool = False) -> dict:
+async def build_project(project: ProjectSpec, publish: bool = False, deploy: bool = False) -> dict:
     state_store.save_project(project)
     model_router = build_router()
     workspace_manager = WorkspaceManager()
@@ -42,6 +43,7 @@ async def build_project(project: ProjectSpec, publish: bool = False) -> dict:
     reviewer = ReviewerAgent(model_router, workspace_manager)
 
     github = None
+    deployer = None
     if publish:
         if not settings.github_token or not settings.github_repository:
             raise HTTPException(
@@ -50,6 +52,13 @@ async def build_project(project: ProjectSpec, publish: bool = False) -> dict:
             )
         github = GitHubAdapter(settings.github_token, settings.github_repository)
 
+    if deploy:
+        if not publish:
+            raise HTTPException(status_code=400, detail="Deployment requires publish=true")
+        deployer = build_deployer()
+        if deployer is None:
+            raise HTTPException(status_code=400, detail="Cloudflare deployment requires CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_PAGES_PROJECT")
+
     pipeline = AutonomousPipeline(
         coder,
         workspace_manager,
@@ -57,6 +66,7 @@ async def build_project(project: ProjectSpec, publish: bool = False) -> dict:
         github=github,
         reviewer=reviewer,
         state_store=state_store,
+        deployer=deployer,
     )
     result = await pipeline.run(project, ["python", "-m", "pytest", "-q"])
     state_store.save_project(project)
@@ -76,6 +86,8 @@ async def build_project(project: ProjectSpec, publish: bool = False) -> dict:
             "url": result.pull_request.url,
             "branch": result.pull_request.branch,
         }
+    if result.deployment:
+        response["deployment"] = {"provider": result.deployment.provider, "url": result.deployment.url}
     return response
 
 
