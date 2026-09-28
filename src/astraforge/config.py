@@ -13,7 +13,8 @@ class Settings(BaseSettings):
     groq_api_key: str | None = None
     groq_default_model: str = "llama-3.3-70b-versatile"
     gemini_api_key: str | None = None
-    gemini_default_model: str = "gemini-3.8-flash"\n    gemini_embedding_model: str = "gemini-embedding-2"
+    gemini_default_model: str = "gemini-3.8-flash"
+    gemini_embedding_model: str = "gemini-embedding-2"
     deepseek_api_key: str | None = None
     deepseek_default_model: str = "deepseek-flash"
     openai_api_key: str | None = None
@@ -25,6 +26,12 @@ class Settings(BaseSettings):
 
     github_token: str | None = None
     github_repository: str | None = None
+
+    cloudflare_api_token: str | None = None
+    cloudflare_account_id: str | None = None
+    cloudflare_pages_project: str | None = None
+    deployment_backend: str = "cloudflare_pages"
+    deployment_output_dir: str = "."
 
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
