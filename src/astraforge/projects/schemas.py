@@ -15,6 +15,7 @@ class ProjectStatus(StrEnum):
     REVIEWING = "reviewing"
     COMPLETED = "completed"
     FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 class ProjectSpec(BaseModel):
