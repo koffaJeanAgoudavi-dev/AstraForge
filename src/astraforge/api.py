@@ -2,8 +2,7 @@
 
 import secrets
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Depends, Header, HTTPException
 
 from astraforge.agents.coder import CodingAgent
 from astraforge.agents.factory import build_router
@@ -12,7 +11,6 @@ from astraforge.config import settings
 from astraforge.integrations.github import GitHubAdapter
 from astraforge.integrations.deployment import build_deployer
 from astraforge.orchestration.engine import Orchestrator
-from astraforge.orchestration.events import build_events
 from astraforge.orchestration.pipeline import AutonomousPipeline
 from astraforge.orchestration.jobs import JobManager
 from astraforge.projects.schemas import ProjectSpec
