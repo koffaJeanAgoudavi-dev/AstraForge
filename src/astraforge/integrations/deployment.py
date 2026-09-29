@@ -4,6 +4,7 @@ import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse
 
 
 @dataclass(frozen=True)
@@ -32,6 +33,8 @@ class CloudflarePagesDeployer:
     ) -> None:
         if not api_token or not account_id or not project_name:
             raise ValueError("Cloudflare token, account ID and project name are required")
+        if timeout <= 0:
+            raise ValueError("Deployment timeout must be positive")
         self.api_token = api_token
         self.account_id = account_id
         self.project_name = project_name
@@ -41,8 +44,10 @@ class CloudflarePagesDeployer:
     def deploy(self, workspace: Path) -> DeploymentResult:
         workspace = workspace.resolve()
         target = (workspace / self.output_dir).resolve()
-        if not target.is_dir() or workspace not in target.parents and target != workspace:
+        if target != workspace and workspace not in target.parents:
             raise ValueError("Deployment output directory must be inside the workspace")
+        if not target.is_dir():
+            raise ValueError(f"Deployment output directory does not exist: {self.output_dir}")
 
         env = os.environ.copy()
         env["CLOUDFLARE_API_TOKEN"] = self.api_token
@@ -71,14 +76,22 @@ class CloudflarePagesDeployer:
 
         url = _extract_deployment_url(result.stdout)
         if not url:
-            raise RuntimeError("Deployment succeeded but Wrangler returned no deployment URL")
+            raise RuntimeError("Deployment succeeded but Wrangler returned no valid Pages URL")
         return DeploymentResult(self.provider, url)
 
 
 def _extract_deployment_url(output: str) -> str | None:
     for token in output.split():
-        if token.startswith("https://") and ".pages.dev" in token:
-            return token.rstrip(".,)")
+        candidate = token.rstrip(".,);]")
+        parsed = urlparse(candidate)
+        hostname = (parsed.hostname or "").lower()
+        if (
+            parsed.scheme == "https"
+            and (hostname == "pages.dev" or hostname.endswith(".pages.dev"))
+            and parsed.username is None
+            and parsed.password is None
+        ):
+            return candidate
     return None
 
 
