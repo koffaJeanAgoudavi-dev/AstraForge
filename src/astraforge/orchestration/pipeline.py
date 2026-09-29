@@ -182,24 +182,21 @@ class AutonomousPipeline:
 
             from astraforge.orchestration.loop import BuildTestLoop, PipelineRepairAgent
 
-            test_loop = BuildTestLoop(
-                self.runner,
-                repair_agent=PipelineRepairAgent(self.coder),
-                max_repairs=self.max_repairs,
-            )
-            test_result = await test_loop.run(workspace, command)
+            test_loop = BuildTestLoop(self.runner, max_repairs=self.max_repairs)
+            repair_agent = PipelineRepairAgent(self.coder, workspace)
+            test_result = await test_loop.run(workspace, command, repair_agent=repair_agent)
             attempts = test_result.attempts
             context.record_test(
                 test_result.passed,
                 test_result.attempts,
-                test_result.stdout,
-                test_result.stderr,
+                test_result.last_result.stdout,
+                test_result.last_result.stderr,
             )
             files = self._existing_files(workspace)
             context.files = files
 
             tester_findings = await self.tester.assess(
-                project, files, test_result.stderr + "\n" + test_result.stdout
+                project, files, test_result.last_result.stderr + "\n" + test_result.last_result.stdout
             )
             context.tester_findings.append(tester_findings)
 
@@ -236,13 +233,13 @@ class AutonomousPipeline:
                     )
                     files = self._existing_files(workspace)
                     context.files = files
-                    test_result = await test_loop.run(workspace, command)
+                    test_result = await test_loop.run(workspace, command, repair_agent=repair_agent)
                     attempts += test_result.attempts
                     context.record_test(
                         test_result.passed,
                         test_result.attempts,
-                        test_result.stdout,
-                        test_result.stderr,
+                        test_result.last_result.stdout,
+                        test_result.last_result.stderr,
                     )
                     if not test_result.passed:
                         project.status = ProjectStatus.FAILED

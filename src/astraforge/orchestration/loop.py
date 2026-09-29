@@ -18,6 +18,22 @@ class LoopResult:
     last_result: CommandResult
 
 
+class PipelineRepairAgent:
+    """Adapt the coding agent to the generic test-loop repair contract."""
+
+    def __init__(self, coder, workspace) -> None:
+        self.coder = coder
+        self.workspace = workspace
+
+    async def repair(self, failure: CommandResult) -> None:
+        output = f"STDOUT:\n{failure.stdout}\n\nSTDERR:\n{failure.stderr}"
+        await self.coder.implement(
+            self.workspace,
+            "Fix the failing tests or code using this test output and return complete replacement files:\n"
+            + output,
+        )
+
+
 class BuildTestLoop:
     def __init__(self, runner: CommandRunner, max_repairs: int = 3) -> None:
         if max_repairs < 0:
