@@ -1,12 +1,24 @@
 """FastAPI application entry point."""
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 
 from astraforge import __version__
-from astraforge.api import router
+from astraforge.api import job_manager, router
 from astraforge.config import settings
 
-app = FastAPI(title=settings.app_name, version=__version__)
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    job_manager.start()
+    try:
+        yield
+    finally:
+        await job_manager.stop()
+
+
+app = FastAPI(title=settings.app_name, version=__version__, lifespan=lifespan)
 app.include_router(router)
 
 
