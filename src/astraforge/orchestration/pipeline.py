@@ -233,7 +233,7 @@ class AutonomousPipeline:
                     )
                     files = self._existing_files(workspace)
                     context.files = files
-                    test_result = await test_loop.run(workspace, command)
+                    test_result = await test_loop.run(workspace, command, repair_agent=repair_agent)
                     attempts += test_result.attempts
                     context.record_test(
                         test_result.passed,
