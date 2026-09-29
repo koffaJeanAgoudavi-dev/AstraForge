@@ -18,6 +18,13 @@ class WorkspaceManager:
         workspace.mkdir(parents=True, exist_ok=False)
         return workspace
 
+    def create_project_workspace(self, project_id: str) -> Path:
+        """Backward-compatible alias for creating a project workspace."""
+        existing = self.root / project_id
+        if existing.exists():
+            return existing.resolve()
+        return self.create(project_id)
+
     def _safe_path(self, workspace: Path, relative_path: str) -> Path:
         target = (workspace / relative_path).resolve()
         target.relative_to(workspace.resolve())
