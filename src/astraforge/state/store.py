@@ -176,7 +176,10 @@ class StateStore:
             ).fetchall()
             for run_id, updated_at, lease_until in rows:
                 try:
-                    expired = (datetime.fromisoformat(lease_until).timestamp() if lease_until else datetime.fromisoformat(updated_at).timestamp() < cutoff)
+                    if lease_until:
+                        expired = datetime.fromisoformat(lease_until).timestamp() < datetime.now(timezone.utc).timestamp()
+                    else:
+                        expired = datetime.fromisoformat(updated_at).timestamp() < cutoff
                 except ValueError:
                     continue
                 if expired:
