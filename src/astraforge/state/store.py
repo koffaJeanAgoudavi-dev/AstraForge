@@ -297,7 +297,7 @@ class StateStore:
         with self._connect() as db:
             row = db.execute(
                 """SELECT id,project_id,stage,status,attempts,command,error,updated_at,
-                   context,cancel_requested,publish,deploy
+                   context,cancel_requested,publish,deploy,worker_id,lease_until,heartbeat_at,started_at
                    FROM runs WHERE project_id=? AND status='running' AND cancel_requested=0
                    ORDER BY id DESC LIMIT 1""",
                 (project_id,),
