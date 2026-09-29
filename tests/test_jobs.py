@@ -72,6 +72,23 @@ async def test_worker_recovers_expired_lease(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_recovery_keeps_active_lease(tmp_path):
+    store = StateStore(tmp_path / "state.db")
+    project = ProjectSpec(id="job-active-lease", name="Job", description="test")
+    store.save_project(project)
+    run_id = store.enqueue_run(project.id, ["pytest"])
+
+    worker = BuildWorker(store, execute=lambda job: asyncio.sleep(0), lease_seconds=60)
+    claimed = store.claim_next_queued_run(worker.worker_id, lease_seconds=60)
+    assert claimed["id"] == run_id
+
+    assert store.recover_stale_runs(0) == 0
+    run = store.get_run(run_id)
+    assert run["status"] == "running"
+    assert run["worker_id"] == worker.worker_id
+
+
+@pytest.mark.asyncio
 async def test_worker_timeout_marks_run_failed(tmp_path):
     store = StateStore(tmp_path / "state.db")
     project = ProjectSpec(id="job-timeout", name="Job", description="test")
