@@ -189,14 +189,14 @@ class AutonomousPipeline:
             context.record_test(
                 test_result.passed,
                 test_result.attempts,
-                test_result.stdout,
-                test_result.stderr,
+                test_result.last_result.stdout,
+                test_result.last_result.stderr,
             )
             files = self._existing_files(workspace)
             context.files = files
 
             tester_findings = await self.tester.assess(
-                project, files, test_result.stderr + "\n" + test_result.stdout
+                project, files, test_result.last_result.stderr + "\n" + test_result.last_result.stdout
             )
             context.tester_findings.append(tester_findings)
 
@@ -238,8 +238,8 @@ class AutonomousPipeline:
                     context.record_test(
                         test_result.passed,
                         test_result.attempts,
-                        test_result.stdout,
-                        test_result.stderr,
+                        test_result.last_result.stdout,
+                        test_result.last_result.stderr,
                     )
                     if not test_result.passed:
                         project.status = ProjectStatus.FAILED
