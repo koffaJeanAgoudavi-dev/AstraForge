@@ -15,8 +15,9 @@ class BuildWorker:
     def __init__(
         self,
         state_store: StateStore,
-        executor: JobExecutor,
+        executor: JobExecutor | None = None,
         *,
+        execute: JobExecutor | None = None,
         poll_interval: float = 0.5,
         lease_seconds: int = 60,
         heartbeat_interval: float = 15,
@@ -24,7 +25,11 @@ class BuildWorker:
         recovery_age: int = 300,
     ) -> None:
         self.state_store = state_store
-        self.executor = executor
+        if executor is not None and execute is not None:
+            raise ValueError("Pass either executor or execute, not both")
+        self.executor = executor or execute
+        if self.executor is None:
+            raise TypeError("BuildWorker requires an executor")
         self.poll_interval = poll_interval
         self.lease_seconds = lease_seconds
         self.heartbeat_interval = heartbeat_interval
