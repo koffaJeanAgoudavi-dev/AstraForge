@@ -29,7 +29,6 @@ def test_cloudflare_deployer_builds_safe_command(tmp_path, monkeypatch):
 
 
 def test_deployer_rejects_output_outside_workspace(tmp_path):
-    outside = tmp_path.parent / "outside"
     with pytest.raises(ValueError, match="inside the workspace"):
         CloudflarePagesDeployer("token", "account", "demo", "../outside").deploy(tmp_path)
 
