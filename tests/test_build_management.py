@@ -14,7 +14,7 @@ def test_build_history_cancel_and_resume(tmp_path):
 
     store.update_run(run_id, stage="cancelled", status="cancelled")
     assert store.resume_run(run_id) is True
-    assert store.get_run(run_id)["status"] == "running"
+    assert store.get_run(run_id)["status"] == "queued"
     assert store.get_run(run_id)["cancel_requested"] is False
 
 

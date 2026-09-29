@@ -1,19 +1,27 @@
 """API endpoints for starting orchestration runs."""
 
-import asyncio
 import secrets
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import (
+    APIRouter,
+    Depends,
+    Header,
+    HTTPException,
+    Query,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.responses import HTMLResponse
 
 from astraforge.agents.coder import CodingAgent
 from astraforge.agents.factory import build_router
 from astraforge.agents.reviewer import ReviewerAgent
 from astraforge.config import settings
-from astraforge.integrations.github import GitHubAdapter
 from astraforge.integrations.deployment import build_deployer
+from astraforge.integrations.github import GitHubAdapter
 from astraforge.orchestration.engine import Orchestrator
 from astraforge.orchestration.events import build_events
+from astraforge.orchestration.jobs import JobManager
 from astraforge.orchestration.pipeline import AutonomousPipeline
 from astraforge.projects.schemas import ProjectSpec
 from astraforge.state.store import StateStore
@@ -28,10 +36,13 @@ state_store = StateStore()
 def require_api_key(x_astraforge_key: str | None = Header(default=None)) -> None:
     if not settings.astraforge_api_key:
         return
-    if not x_astraforge_key or not secrets.compare_digest(x_astraforge_key, settings.astraforge_api_key):
+    if not x_astraforge_key or not secrets.compare_digest(
+        x_astraforge_key, settings.astraforge_api_key
+    ):
         raise HTTPException(status_code=401, detail="Invalid or missing AstraForge API key")
 
-CONTROL_UI = '''<!doctype html>
+
+CONTROL_UI = """<!doctype html>
 <html lang="fr">
 <head>
 <meta charset="utf-8">
@@ -67,30 +78,39 @@ async function build() {
     id,
     name: document.getElementById("name").value || "AstraForge project",
     description: document.getElementById("description").value,
-    requirements: document.getElementById("requirements").value.split(String.fromCharCode(10)).filter(Boolean)
+    requirements: document.getElementById("requirements").value
+      .split(String.fromCharCode(10)).filter(Boolean)
   };
   const wsProtocol = location.protocol === "https:" ? "wss://" : "ws://";
   const token = key ? "?token=" + encodeURIComponent(key) : "";
-  ws = new WebSocket(wsProtocol + location.host + "/projects/" + id + "/events" + token);
+  ws = new WebSocket(
+    wsProtocol + location.host + "/projects/" + id + "/events" + token
+  );
   ws.onmessage = event => {
     const data = JSON.parse(event.data);
-    document.getElementById("status").textContent = data.stage || data.type || data.status;
+    document.getElementById("status").textContent =
+      data.stage || data.type || data.status;
     log(JSON.stringify(data));
   };
   ws.onopen = async () => {
-    const response = await fetch("/projects/build?publish=false&deploy=false", {
-      method: "POST",
-      headers: {"Content-Type": "application/json", ...(key ? {"X-AstraForge-Key": key} : {})},
-      body: JSON.stringify(project)
-    });
+    const response = await fetch(
+      "/projects/build?publish=false&deploy=false",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(key ? {"X-AstraForge-Key": key} : {})
+        },
+        body: JSON.stringify(project)
+      }
+    );
     log(JSON.stringify(await response.json(), null, 2));
   };
 }
 </script>
 </main>
 </body>
-</html>'''
-
+</html>"""
 
 
 @router.post("/plan")
@@ -105,12 +125,11 @@ def create_project_plan(project: ProjectSpec, _: None = Depends(require_api_key)
     }
 
 
-async def _run_pipeline_in_background(
-    project: ProjectSpec,
-    run_id: int,
-    publish: bool,
-    deploy: bool,
-) -> None:
+async def _execute_build_job(job: dict) -> None:
+    project = state_store.get_project(job["project_id"])
+    if project is None:
+        raise RuntimeError(f"Project {job['project_id']} no longer exists")
+
     model_router = build_router()
     workspace_manager = WorkspaceManager()
     coder = CodingAgent(model_router, workspace_manager)
@@ -118,9 +137,9 @@ async def _run_pipeline_in_background(
 
     github = None
     deployer = None
-    if publish:
+    if job["publish"]:
         github = GitHubAdapter(settings.github_token, settings.github_repository)
-    if deploy:
+    if job["deploy"]:
         deployer = build_deployer()
 
     pipeline = AutonomousPipeline(
@@ -135,17 +154,15 @@ async def _run_pipeline_in_background(
     try:
         await pipeline.run(
             project,
-            ["python", "-m", "pytest", "-q"],
-            resume=False,
-            run_id=run_id,
+            job["command"],
+            resume=True,
+            run_id=job["id"],
         )
-    except asyncio.CancelledError:
-        raise
-    except Exception:
-        # Pipeline persists the failed run state; isolate the exception from the HTTP request.
-        return
     finally:
         state_store.save_project(project)
+
+
+job_manager = JobManager(state_store, _execute_build_job)
 
 
 @router.post("/build")
@@ -175,26 +192,37 @@ async def build_project(
                 ),
             )
 
-    run_id = state_store.start_run(project.id, ["python", "-m", "pytest", "-q"])
-    asyncio.create_task(_run_pipeline_in_background(project, run_id, publish, deploy))
+    run_id = state_store.enqueue_run(
+        project.id,
+        ["python", "-m", "pytest", "-q"],
+        publish=publish,
+        deploy=deploy,
+    )
     return {
         "project_id": project.id,
         "run_id": run_id,
-        "status": "started",
-        "message": "Build started in background. Follow events with the run/event endpoints.",
+        "status": "queued",
+        "message": "Build queued for the durable worker. Follow events with the run/event endpoints.",
     }
 
 
 @router.get("/{project_id}/runs")
-def list_project_runs(project_id: str, limit: int = Query(default=50, ge=1, le=200),
-                      _: None = Depends(require_api_key)) -> dict:
+def list_project_runs(
+    project_id: str,
+    limit: int = Query(default=50, ge=1, le=200),
+    _: None = Depends(require_api_key),
+) -> dict:
     if state_store.get_project(project_id) is None:
         raise HTTPException(status_code=404, detail="Project not found")
     return {"project_id": project_id, "runs": state_store.list_runs(project_id, limit)}
 
 
 @router.get("/{project_id}/runs/{run_id}")
-def get_project_run(project_id: str, run_id: int, _: None = Depends(require_api_key)) -> dict:
+def get_project_run(
+    project_id: str,
+    run_id: int,
+    _: None = Depends(require_api_key),
+) -> dict:
     run = state_store.get_run(run_id)
     if not run or run["project_id"] != project_id:
         raise HTTPException(status_code=404, detail="Run not found")
@@ -202,22 +230,34 @@ def get_project_run(project_id: str, run_id: int, _: None = Depends(require_api_
 
 
 @router.get("/{project_id}/events")
-def get_project_events(project_id: str, after_id: int = Query(default=0, ge=0),
-                       _: None = Depends(require_api_key)) -> dict:
+def get_project_events(
+    project_id: str,
+    after_id: int = Query(default=0, ge=0),
+    _: None = Depends(require_api_key),
+) -> dict:
     if state_store.get_project(project_id) is None:
         raise HTTPException(status_code=404, detail="Project not found")
     return {"project_id": project_id, "events": state_store.list_events(project_id, after_id)}
 
 
 @router.post("/{project_id}/runs/{run_id}/cancel")
-def cancel_project_run(project_id: str, run_id: int, _: None = Depends(require_api_key)) -> dict:
+def cancel_project_run(
+    project_id: str,
+    run_id: int,
+    _: None = Depends(require_api_key),
+) -> dict:
     run = state_store.get_run(run_id)
     if not run or run["project_id"] != project_id:
         raise HTTPException(status_code=404, detail="Run not found")
     if not state_store.request_cancel(run_id):
-        raise HTTPException(status_code=409, detail="Run is no longer running")
-    state_store.append_event(project_id, run["stage"], "cancellation_requested",
-                              "Cancellation requested", run_id=run_id)
+        raise HTTPException(status_code=409, detail="Run is no longer active")
+    state_store.append_event(
+        project_id,
+        run["stage"],
+        "cancellation_requested",
+        "Cancellation requested",
+        run_id=run_id,
+    )
     return {"run_id": run_id, "status": "cancellation_requested"}
 
 
@@ -254,14 +294,11 @@ async def resume_project(
 
     if not state_store.resume_run(latest["id"]):
         raise HTTPException(status_code=409, detail="Run cannot be resumed")
-    asyncio.create_task(
-        _run_pipeline_in_background(project, latest["id"], publish, deploy)
-    )
     return {
         "project_id": project_id,
         "run_id": latest["id"],
-        "status": "resumed",
-        "message": "Build resumed in background.",
+        "status": "queued",
+        "message": "Build resumed and queued for the worker.",
     }
 
 
@@ -280,7 +317,11 @@ def get_project_state(project_id: str, _: None = Depends(require_api_key)) -> di
 
 
 @router.websocket("/{project_id}/events")
-async def project_events(websocket: WebSocket, project_id: str, token: str | None = Query(default=None)) -> None:
+async def project_events(
+    websocket: WebSocket,
+    project_id: str,
+    token: str | None = Query(default=None),
+) -> None:
     if settings.astraforge_api_key:
         if not token or not secrets.compare_digest(token, settings.astraforge_api_key):
             await websocket.close(code=1008)
