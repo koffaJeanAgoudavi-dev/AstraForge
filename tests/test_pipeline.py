@@ -1,13 +1,34 @@
+import json
+
 import pytest
 
 from astraforge.orchestration.pipeline import AutonomousPipeline
+from astraforge.providers.base import ModelResponse
 from astraforge.projects.schemas import ProjectSpec
 from astraforge.state.store import StateStore
 from astraforge.workspace.manager import WorkspaceManager
 from astraforge.workspace.runner import CommandRunner
 
 
+class FakeRouter:
+    async def generate(self, request, role="general"):
+        if role == "architect":
+            return ModelResponse(
+                text=json.dumps({"plan": "pytest project", "files": ["test_ok.py"]}),
+                provider="fake",
+                model="fake",
+            )
+        if role == "tester":
+            return ModelResponse(text="No test issues.", provider="fake", model="fake")
+        if role == "reviewer":
+            return ModelResponse(text="No review issues.", provider="fake", model="fake")
+        return ModelResponse(text="{}", provider="fake", model="fake")
+
+
 class FakeCoder:
+    def __init__(self):
+        self.router = FakeRouter()
+
     async def implement(self, workspace, instruction):
         (workspace / "test_ok.py").write_text("def test_ok(): assert True", encoding="utf-8")
         return ["test_ok.py"]
