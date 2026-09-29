@@ -184,7 +184,7 @@ class AutonomousPipeline:
 
             test_loop = BuildTestLoop(
                 self.runner,
-                repair_agent=PipelineRepairAgent(self.coder),
+                repair_agent=PipelineRepairAgent(self.coder, workspace),
                 max_repairs=self.max_repairs,
             )
             test_result = await test_loop.run(workspace, command)
