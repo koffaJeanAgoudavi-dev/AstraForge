@@ -182,12 +182,9 @@ class AutonomousPipeline:
 
             from astraforge.orchestration.loop import BuildTestLoop, PipelineRepairAgent
 
-            test_loop = BuildTestLoop(
-                self.runner,
-                repair_agent=PipelineRepairAgent(self.coder, workspace),
-                max_repairs=self.max_repairs,
-            )
-            test_result = await test_loop.run(workspace, command)
+            test_loop = BuildTestLoop(self.runner, max_repairs=self.max_repairs)
+            repair_agent = PipelineRepairAgent(self.coder, workspace)
+            test_result = await test_loop.run(workspace, command, repair_agent=repair_agent)
             attempts = test_result.attempts
             context.record_test(
                 test_result.passed,
