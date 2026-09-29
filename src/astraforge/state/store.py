@@ -161,6 +161,10 @@ class StateStore:
             values = list(row)
             values[2] = "starting"
             values[3] = "running"
+            values[12] = worker_id
+            values[13] = lease_until
+            values[14] = now
+            values[15] = values[15] or now
             return self._run_dict(tuple(values))
 
     def recover_stale_runs(self, max_age_seconds: int = 300) -> int:
