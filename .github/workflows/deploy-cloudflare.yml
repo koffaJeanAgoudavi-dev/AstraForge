@@ -47,7 +47,7 @@ jobs:
           python - <<'PY'
           import os
           from pathlib import Path
-          from astrforge.integrations.deployment import CloudflarePagesDeployer
+          from astraforge.integrations.deployment import CloudflarePagesDeployer
 
           deployer = CloudflarePagesDeployer(
               api_token=os.environ["CLOUDFLARE_API_TOKEN"],
