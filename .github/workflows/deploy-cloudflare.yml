@@ -50,11 +50,11 @@ jobs:
           from astrforge.integrations.deployment import CloudflarePagesDeployer
 
           deployer = CloudflarePagesDeployer(
-              token=os.environ["CLOUDFLARE_API_TOKEN"],
+              api_token=os.environ["CLOUDFLARE_API_TOKEN"],
               account_id=os.environ["CLOUDFLARE_ACCOUNT_ID"],
               project_name=os.environ["CLOUDFLARE_PAGES_PROJECT"],
-              output_dir=Path("."),
+              output_dir=".",
           )
-          result = deployer.deploy()
+          result = deployer.deploy(Path("."))
           print(result)
           PY
