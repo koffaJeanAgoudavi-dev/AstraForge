@@ -13,6 +13,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - uses: docker/setup-buildx-action@v3
+      - name: Build AstraForge sandbox image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./docker/sandbox
+          load: true
+          tags: astraforge-sandbox:latest
       - run: python -m pip install --upgrade pip
       - run: pip install -e ".[dev]"
       - run: python -m compileall -q src tests
