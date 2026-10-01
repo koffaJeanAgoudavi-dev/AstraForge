@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     astraforge_api_key: str | None = None
 
     groq_api_key: str | None = None
-    groq_default_model: str = "llama-3.3-70b-versatile"
+    groq_default_model: str = "openai/gpt-oss-120b"
     gemini_api_key: str | None = None
     gemini_default_model: str = "gemini-3.8-flash"
     gemini_embedding_model: str = "gemini-embedding-2"
