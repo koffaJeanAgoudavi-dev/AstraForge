@@ -17,16 +17,16 @@ from astraforge.providers.router import ModelRouter
 def build_router() -> ModelRouter:
     providers = []
 
-    if settings.openai_api_key:
-        providers.append(OpenAIProvider())
+    if settings.groq_api_key:
+        providers.append(GroqProvider())
     if settings.gemini_api_key:
         providers.append(GeminiProvider())
     if settings.deepseek_api_key:
         providers.append(DeepSeekProvider())
+    if settings.openai_api_key:
+        providers.append(OpenAIProvider())
     if settings.mistral_api_key:
         providers.append(MistralProvider())
-    if settings.groq_api_key:
-        providers.append(GroqProvider())
     if settings.cerebras_api_key:
         providers.append(CerebrasProvider())
 
