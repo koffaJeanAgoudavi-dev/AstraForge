@@ -190,7 +190,7 @@ class AutonomousPipeline:
             async def test_loop_event(stage: str, attempt: int) -> None:
                 await checkpoint(stage, attempts=attempt)
 
-            await checkpoint("tester.started", attempts=attempts)
+            await checkpoint("tester.started", attempts=0)
             test_result = await test_loop.run(
                 workspace,
                 command,
