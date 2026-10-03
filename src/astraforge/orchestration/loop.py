@@ -42,7 +42,10 @@ class BuildTestLoop:
         self.runner = runner
         self.max_repairs = max_repairs
 
-    async def run(\n        self, workspace, command: list[str], repair_agent: RepairAgent | None = None,\n        event_callback: Callable[[str, int], Awaitable[None]] | None = None,\n    ) -> LoopResult:
+    async def run(
+        self, workspace, command: list[str], repair_agent: RepairAgent | None = None,
+        event_callback: Callable[[str, int], Awaitable[None]] | None = None,
+    ) -> LoopResult:
         attempts = 0
         while True:
             result = self.runner.run(workspace, command)
@@ -50,5 +53,9 @@ class BuildTestLoop:
                 return LoopResult(True, attempts, result)
             if attempts >= self.max_repairs or repair_agent is None:
                 return LoopResult(False, attempts, result)
-            await repair_agent.repair(result)
             attempts += 1
+            if event_callback is not None:
+                await event_callback("repair.started", attempts)
+            await repair_agent.repair(result)
+            if event_callback is not None:
+                await event_callback("repair.completed", attempts)
