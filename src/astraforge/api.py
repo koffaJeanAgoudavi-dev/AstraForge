@@ -165,6 +165,90 @@ async def _execute_build_job(job: dict) -> None:
 job_manager = JobManager(state_store, _execute_build_job)
 
 
+def _public_run(run: dict) -> dict:
+    """Return run metadata safe for external clients; never expose worker leases or raw context."""
+    return {
+        "id": run["id"], "project_id": run["project_id"], "stage": run["stage"],
+        "status": run["status"], "attempts": run["attempts"], "error": run["error"],
+        "updated_at": run["updated_at"], "started_at": run["started_at"],
+        "cancel_requested": run["cancel_requested"], "publish": run["publish"], "deploy": run["deploy"],
+    }
+
+
+def _workspace_for(project_id: str):
+    workspace = (WorkspaceManager().root / project_id).resolve()
+    try:
+        workspace.relative_to(WorkspaceManager().root)
+    except ValueError:
+        return None
+    return workspace if workspace.exists() else None
+
+
+async def _queue_build(project: ProjectSpec, *, publish: bool, deploy: bool) -> dict:
+    if publish and (not settings.github_token or not settings.github_repository):
+        raise HTTPException(status_code=400, detail="GitHub publishing requires GITHUB_TOKEN and GITHUB_REPOSITORY")
+    if deploy:
+        if not publish:
+            raise HTTPException(status_code=400, detail="Deployment requires publish=true")
+        if build_deployer() is None:
+            raise HTTPException(status_code=400, detail="Cloudflare deployment requires CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_PAGES_PROJECT")
+    run_id = state_store.enqueue_run(project.id, ["python", "-m", "pytest", "-q"], publish=publish, deploy=deploy)
+    return {"project_id": project.id, "run_id": run_id, "status": "queued"}
+
+
+@router.post("")
+def create_project(project: ProjectSpec, _: None = Depends(require_api_key)) -> dict:
+    state_store.save_project(project)
+    return {"project": project.model_dump(mode="json")}
+
+
+@router.post("/{project_id}/build")
+async def build_existing_project(project_id: str, publish: bool = False, deploy: bool = False, _: None = Depends(require_api_key)) -> dict:
+    project = state_store.get_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return await _queue_build(project, publish=publish, deploy=deploy)
+
+
+@router.get("/{project_id}/files")
+def get_project_files(project_id: str, path: str | None = Query(default=None), _: None = Depends(require_api_key)) -> dict:
+    if state_store.get_project(project_id) is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    workspace = _workspace_for(project_id)
+    if workspace is None:
+        return {"project_id": project_id, "files": []}
+    manager = WorkspaceManager()
+    if path:
+        try:
+            content = manager.read_file(workspace, path)
+        except FileNotFoundError:
+            raise HTTPException(status_code=404, detail="File not found") from None
+        except (IsADirectoryError, ValueError):
+            raise HTTPException(status_code=400, detail="Invalid file path") from None
+        return {"project_id": project_id, "path": path, "content": content}
+    files = sorted(str(p.relative_to(workspace)) for p in workspace.rglob("*") if p.is_file())
+    return {"project_id": project_id, "files": files}
+
+
+@router.get("/{project_id}/tests")
+def get_project_tests(project_id: str, _: None = Depends(require_api_key)) -> dict:
+    if state_store.get_project(project_id) is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    run = state_store.get_latest_run(project_id)
+    context = (run or {}).get("context", {})
+    return {"project_id": project_id, "run_id": run["id"] if run else None,
+            "tests": context.get("test_results", []), "tester_findings": context.get("tester_findings", []),
+            "reviewer_findings": context.get("reviewer_findings", []), "repairs": context.get("repairs", [])}
+
+
+@router.post("/{project_id}/deploy")
+async def deploy_project(project_id: str, _: None = Depends(require_api_key)) -> dict:
+    project = state_store.get_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return await _queue_build(project, publish=True, deploy=True)
+
+
 @router.post("/build")
 async def build_project(
     project: ProjectSpec,
@@ -174,36 +258,9 @@ async def build_project(
 ) -> dict:
     state_store.save_project(project)
 
-    if publish and (not settings.github_token or not settings.github_repository):
-        raise HTTPException(
-            status_code=400,
-            detail="GitHub publishing requires GITHUB_TOKEN and GITHUB_REPOSITORY",
-        )
-
-    if deploy:
-        if not publish:
-            raise HTTPException(status_code=400, detail="Deployment requires publish=true")
-        if build_deployer() is None:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "Cloudflare deployment requires CLOUDFLARE_API_TOKEN, "
-                    "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_PAGES_PROJECT"
-                ),
-            )
-
-    run_id = state_store.enqueue_run(
-        project.id,
-        ["python", "-m", "pytest", "-q"],
-        publish=publish,
-        deploy=deploy,
-    )
-    return {
-        "project_id": project.id,
-        "run_id": run_id,
-        "status": "queued",
-        "message": "Build queued for the durable worker. Follow events with the run/event endpoints.",
-    }
+    result = await _queue_build(project, publish=publish, deploy=deploy)
+    result["message"] = "Build queued for the durable worker. Follow the run and event endpoints."
+    return result
 
 
 @router.get("/{project_id}/runs")
@@ -214,7 +271,7 @@ def list_project_runs(
 ) -> dict:
     if state_store.get_project(project_id) is None:
         raise HTTPException(status_code=404, detail="Project not found")
-    return {"project_id": project_id, "runs": state_store.list_runs(project_id, limit)}
+    return {"project_id": project_id, "runs": [_public_run(run) for run in state_store.list_runs(project_id, limit)]}
 
 
 @router.get("/{project_id}/runs/{run_id}")
@@ -226,7 +283,7 @@ def get_project_run(
     run = state_store.get_run(run_id)
     if not run or run["project_id"] != project_id:
         raise HTTPException(status_code=404, detail="Run not found")
-    return run
+    return _public_run(run)
 
 
 @router.get("/{project_id}/events")
@@ -313,7 +370,7 @@ def get_project_state(project_id: str, _: None = Depends(require_api_key)) -> di
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found")
     run = state_store.get_latest_run(project_id)
-    return {"project": project.model_dump(mode="json"), "latest_run": run}
+    return {"project": project.model_dump(mode="json"), "latest_run": _public_run(run) if run else None}
 
 
 @router.websocket("/{project_id}/events")
