@@ -50,5 +50,9 @@ class BuildTestLoop:
                 return LoopResult(True, attempts, result)
             if attempts >= self.max_repairs or repair_agent is None:
                 return LoopResult(False, attempts, result)
-            await repair_agent.repair(result)
             attempts += 1
+            if event_callback is not None:
+                await event_callback("repair.started", attempts)
+            await repair_agent.repair(result)
+            if event_callback is not None:
+                await event_callback("repair.completed", attempts)
