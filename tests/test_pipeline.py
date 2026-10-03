@@ -47,6 +47,15 @@ async def test_pipeline_builds_and_tests(tmp_path):
     assert result.resumed is False
     assert project.status.value == "completed"
     assert store.get_latest_run(project.id)["status"] == "completed"
+    stages = [event["stage"] for event in store.list_events(project.id)]
+    assert "developer.started" in stages
+    assert "developer.completed" in stages
+    assert "tester.started" in stages
+    assert "tester.completed" in stages
+    assert "tester.assessed" in stages
+    assert "reviewer.started" in stages
+    assert "reviewer.assessed" in stages
+    assert stages[-1] == "completed"
 
 
 @pytest.mark.asyncio
