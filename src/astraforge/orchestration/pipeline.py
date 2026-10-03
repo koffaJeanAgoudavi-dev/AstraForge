@@ -184,7 +184,17 @@ class AutonomousPipeline:
 
             test_loop = BuildTestLoop(self.runner, max_repairs=self.max_repairs)
             repair_agent = PipelineRepairAgent(self.coder, workspace)
-            test_result = await test_loop.run(workspace, command, repair_agent=repair_agent)
+
+            async def test_loop_event(stage: str, attempt: int) -> None:
+                await checkpoint(stage, attempts=attempt)
+
+            await checkpoint("tester.started", attempts=attempts)
+            test_result = await test_loop.run(
+                workspace,
+                command,
+                repair_agent=repair_agent,
+                event_callback=test_loop_event,
+            )
             attempts = test_result.attempts
             context.record_test(
                 test_result.passed,
@@ -195,6 +205,7 @@ class AutonomousPipeline:
             files = self._existing_files(workspace)
             context.files = files
 
+            await checkpoint("tester.completed", attempts=attempts)
             tester_findings = await self.tester.assess(
                 project, files, test_result.last_result.stderr + "\n" + test_result.last_result.stdout
             )
@@ -233,7 +244,14 @@ class AutonomousPipeline:
                     )
                     files = self._existing_files(workspace)
                     context.files = files
-                    test_result = await test_loop.run(workspace, command, repair_agent=repair_agent)
+                    await checkpoint("tester.started", attempts=attempts)
+                    test_result = await test_loop.run(
+                        workspace,
+                        command,
+                        repair_agent=repair_agent,
+                        event_callback=test_loop_event,
+                    )
+                    await checkpoint("tester.completed", attempts=attempts)
                     attempts += test_result.attempts
                     context.record_test(
                         test_result.passed,
