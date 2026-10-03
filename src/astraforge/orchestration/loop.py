@@ -1,6 +1,7 @@
 """Bounded autonomous build/test/repair loop."""
 
 from dataclasses import dataclass
+from collections.abc import Awaitable, Callable
 from typing import Protocol
 
 from astraforge.workspace.runner import CommandResult
@@ -41,7 +42,7 @@ class BuildTestLoop:
         self.runner = runner
         self.max_repairs = max_repairs
 
-    async def run(self, workspace, command: list[str], repair_agent: RepairAgent | None = None) -> LoopResult:
+    async def run(\n        self, workspace, command: list[str], repair_agent: RepairAgent | None = None,\n        event_callback: Callable[[str, int], Awaitable[None]] | None = None,\n    ) -> LoopResult:
         attempts = 0
         while True:
             result = self.runner.run(workspace, command)
