@@ -169,7 +169,9 @@ class AutonomousPipeline:
                     + "\n\nARCHITECTURE:\n" + architecture.plan
                     + "\n\nRELEVANT MEMORY:\n" + context.prompt()
                 )
-                await checkpoint("developer.started")\n                await self.coder.implement(workspace, developer_instruction)\n                await checkpoint("developer.completed")
+                await checkpoint("developer.started")
+                await self.coder.implement(workspace, developer_instruction)
+                await checkpoint("developer.completed")
                 files = self._existing_files(workspace)
                 context.files = files
                 context.add_decision("Developer implementation generated from architecture")
@@ -209,7 +211,8 @@ class AutonomousPipeline:
             tester_findings = await self.tester.assess(
                 project, files, test_result.last_result.stderr + "\n" + test_result.last_result.stdout
             )
-            context.tester_findings.append(tester_findings)\n            await checkpoint("tester.assessed", attempts=attempts)
+            context.tester_findings.append(tester_findings)
+            await checkpoint("tester.assessed", attempts=attempts)
 
             if not test_result.passed:
                 project.status = ProjectStatus.FAILED
@@ -219,10 +222,12 @@ class AutonomousPipeline:
             await check_cancelled()
             project.status = ProjectStatus.REVIEWING
             await checkpoint("reviewing", attempts=attempts)
-            await checkpoint("reviewer.started", attempts=attempts)\n            context_findings = await self.context_reviewer.review_context(
+            await checkpoint("reviewer.started", attempts=attempts)
+            context_findings = await self.context_reviewer.review_context(
                 project, architecture_text, files, tester_findings + "\n\nContext:\n" + context.prompt()
             )
-            context.reviewer_findings.append(context_findings)\n            await checkpoint("reviewer.assessed", attempts=attempts)
+            context.reviewer_findings.append(context_findings)
+            await checkpoint("reviewer.assessed", attempts=attempts)
 
             if self.reviewer:
                 approved = False
@@ -234,7 +239,8 @@ class AutonomousPipeline:
                         break
 
                     context.reviewer_findings.append(review.findings)
-                    context.record_repair("reviewer", review.findings)\n                    await checkpoint("repair.started", attempts=attempts)
+                    context.record_repair("reviewer", review.findings)
+                    await checkpoint("repair.started", attempts=attempts)
                     await self.coder.implement(
                         workspace,
                         "Fix these blocking review findings and return complete replacement files:\n"
