@@ -24,5 +24,7 @@ jobs:
         run: python -m pip install -e ".[dev,sandbox]"
       - name: Compile Python sources
         run: python -m compileall -q src tests
+      - name: Build Docker sandbox image
+        run: docker build -f docker/sandbox/Dockerfile -t astraforge-sandbox:latest .
       - name: Run test suite
         run: python -m pytest -q
