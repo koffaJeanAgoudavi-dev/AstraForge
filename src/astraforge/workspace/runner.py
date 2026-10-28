@@ -134,7 +134,17 @@ class E2BCommandRunner:
                 sandbox.commands.run("mkdir -p /workspace", timeout=10)
                 for relative, content in files:
                     remote_path = "/workspace/" + relative.as_posix()
+                    remote_parent = remote_path.rsplit("/", 1)[0]
+                    sandbox.commands.run("mkdir -p " + shlex.quote(remote_parent), timeout=10)
                     sandbox.files.write(remote_path, content)
+                if command[0] == "pytest":
+                    install = sandbox.commands.run("python -m pip install --quiet pytest", timeout=min(timeout, 120))
+                    if install.exit_code != 0:
+                        return CommandResult(command, install.exit_code, install.stdout or "", install.stderr or "")
+                elif command[0] == "ruff":
+                    install = sandbox.commands.run("python -m pip install --quiet ruff", timeout=min(timeout, 120))
+                    if install.exit_code != 0:
+                        return CommandResult(command, install.exit_code, install.stdout or "", install.stderr or "")
                 result = sandbox.commands.run(
                     "cd /workspace && " + shlex.join(command),
                     timeout=timeout,
