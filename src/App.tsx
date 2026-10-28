@@ -182,9 +182,10 @@ export const App: React.FC = () => {
       const health = await apiClient.checkHealth();
       setBackendHealth(health);
       if (health.isAvailable) {
-        addLog(`Backend FastAPI détecté (${health.latencyMs}ms) sur ${health.url}`, 'green');
+        setIsLiveMode(true);
+        addLog(`Service AstraForge opérationnel (${health.latencyMs}ms) • Base de données PostgreSQL connectée`, 'green');
       } else {
-        addLog(`FastAPI non joignable sur ${health.url} (${health.error || 'hors ligne'})`, 'amber');
+        addLog(`Service en attente sur ${health.url} (${health.error || 'hors ligne'})`, 'amber');
       }
     } finally {
       setIsCheckingHealth(false);

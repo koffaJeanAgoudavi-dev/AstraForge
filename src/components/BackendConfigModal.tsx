@@ -86,11 +86,10 @@ export const BackendConfigModal: React.FC<BackendConfigModalProps> = ({
           <div className="bg-[#08121e] border border-[#1b344d] p-3.5 rounded-xl space-y-2">
             <div className="flex items-center gap-2 font-bold text-[#54d6ff]">
               <ShieldAlert className="w-4 h-4" />
-              <span>Rapport d'audit de l'environnement conteneurisé</span>
+              <span>Service Full-Stack & Base de données</span>
             </div>
             <p className="text-[#8ea4bd] leading-relaxed">
-              Dans l'environnement de développement AI Studio (runtime <code className="text-white">nodejs22</code>),
-              le port 8000 interne est alloué au service de contrôle système. Pour exécuter les agents sur un backend FastAPI externe, renseignez l’URL de votre service hébergé (Cloud Run, VPS, ou reverse proxy).
+              Le service backend AstraForge tourne directement avec la base de données relationnelle PostgreSQL managée. Les agents (Architect, Developer, Tester, Reviewer), les builds, fichiers et résultats de tests sont persistés et orchestrés en temps réel via WebSockets et REST.
             </p>
           </div>
 

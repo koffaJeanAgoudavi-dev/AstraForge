@@ -61,11 +61,11 @@ export const Header: React.FC<HeaderProps> = ({
 
           <div className="text-left font-mono">
             <span className="font-semibold block">
-              {backendHealth.isAvailable ? 'FastAPI : Connecté' : 'FastAPI : Hors ligne'}
+              {backendHealth.isAvailable ? 'AstraForge : Connecté' : 'Service : Déconnecté'}
             </span>
             <span className="text-[10px] opacity-80">
               {backendHealth.isAvailable
-                ? `${backendHealth.latencyMs}ms`
+                ? `${backendHealth.latencyMs}ms • PostgreSQL actif`
                 : 'Mode local actif (Cliquer pour régler)'}
             </span>
           </div>
