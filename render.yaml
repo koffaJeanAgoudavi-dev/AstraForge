@@ -1,0 +1,39 @@
+services:
+  - type: web
+    name: astraforge-backend
+    runtime: python
+    plan: starter
+    region: frankfurt
+    branch: feature/remote-sandbox-deployment
+    buildCommand: pip install -e ".[sandbox]"
+    startCommand: uvicorn astraforge.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    disk:
+      name: astraforge-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: SANDBOX_BACKEND
+        value: e2b
+      - key: STATE_DB_PATH
+        value: /var/data/state.db
+      - key: WORKSPACE_ROOT
+        value: /var/data/workspaces
+      - key: ASTRAFORGE_API_KEY
+        generateValue: true
+      - key: E2B_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: MISTRAL_API_KEY
+        sync: false
+      - key: CEREBRAS_API_KEY
+        sync: false
