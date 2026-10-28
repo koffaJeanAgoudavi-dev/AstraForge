@@ -30,7 +30,7 @@ from astraforge.workspace.runner import DockerCommandRunner, E2BCommandRunner
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 orchestrator = Orchestrator()
-state_store = StateStore(settings.state_db_path)
+state_store = StateStore(settings.state_db_path, database_url=settings.database_url)
 
 
 def _build_command_runner():
