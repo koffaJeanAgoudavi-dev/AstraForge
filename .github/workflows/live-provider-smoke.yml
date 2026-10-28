@@ -36,8 +36,11 @@ jobs:
                   ),
                   role="general",
               )
-              assert "ASTRAFORGE_LIVE_OK" in response.text
               print(f"provider={response.provider} model={response.model}")
+              print(f"response={response.text!r}")
+              assert response.provider == "groq"
+              assert response.text.strip()
+              assert "ASTRAFORGE_LIVE_OK" in response.text
 
           asyncio.run(main())
           PY
