@@ -26,11 +26,21 @@ from astraforge.orchestration.pipeline import AutonomousPipeline
 from astraforge.projects.schemas import ProjectSpec
 from astraforge.state.store import StateStore
 from astraforge.workspace.manager import WorkspaceManager
-from astraforge.workspace.runner import DockerCommandRunner
+from astraforge.workspace.runner import DockerCommandRunner, E2BCommandRunner
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 orchestrator = Orchestrator()
 state_store = StateStore()
+
+
+def _build_command_runner():
+    """Select the execution sandbox explicitly; never silently fall back."""
+    backend = settings.sandbox_backend.strip().lower()
+    if backend == "docker":
+        return DockerCommandRunner()
+    if backend == "e2b":
+        return E2BCommandRunner()
+    raise RuntimeError("SANDBOX_BACKEND must be either 'docker' or 'e2b'")
 
 
 def require_api_key(x_astraforge_key: str | None = Header(default=None)) -> None:
@@ -145,7 +155,7 @@ async def _execute_build_job(job: dict) -> None:
     pipeline = AutonomousPipeline(
         coder,
         workspace_manager,
-        DockerCommandRunner(),
+        _build_command_runner(),
         github=github,
         reviewer=reviewer,
         state_store=state_store,
