@@ -141,7 +141,7 @@ async def _execute_build_job(job: dict) -> None:
         raise RuntimeError(f"Project {job['project_id']} no longer exists")
 
     model_router = build_router()
-    workspace_manager = WorkspaceManager(settings.workspace_root)
+    workspace_manager = WorkspaceManager()
     coder = CodingAgent(model_router, workspace_manager)
     reviewer = ReviewerAgent(model_router, workspace_manager)
 
@@ -186,7 +186,7 @@ def _public_run(run: dict) -> dict:
 
 
 def _workspace_for(project_id: str):
-    workspace_manager = WorkspaceManager(settings.workspace_root)
+    workspace_manager = WorkspaceManager()
     workspace = (workspace_manager.root / project_id).resolve()
     try:
         workspace.relative_to(workspace_manager.root)
@@ -228,7 +228,7 @@ def get_project_files(project_id: str, path: str | None = Query(default=None), _
     workspace = _workspace_for(project_id)
     if workspace is None:
         return {"project_id": project_id, "files": []}
-    manager = WorkspaceManager(settings.workspace_root)
+    manager = WorkspaceManager()
     if path:
         try:
             content = manager.read_file(workspace, path)
