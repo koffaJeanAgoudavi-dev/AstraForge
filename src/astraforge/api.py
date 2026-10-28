@@ -30,7 +30,7 @@ from astraforge.workspace.runner import DockerCommandRunner, E2BCommandRunner
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 orchestrator = Orchestrator()
-state_store = StateStore()
+state_store = StateStore(settings.state_db_path)
 
 
 def _build_command_runner():
@@ -141,7 +141,7 @@ async def _execute_build_job(job: dict) -> None:
         raise RuntimeError(f"Project {job['project_id']} no longer exists")
 
     model_router = build_router()
-    workspace_manager = WorkspaceManager()
+    workspace_manager = WorkspaceManager(settings.workspace_root)
     coder = CodingAgent(model_router, workspace_manager)
     reviewer = ReviewerAgent(model_router, workspace_manager)
 
@@ -186,9 +186,10 @@ def _public_run(run: dict) -> dict:
 
 
 def _workspace_for(project_id: str):
-    workspace = (WorkspaceManager().root / project_id).resolve()
+    workspace_manager = WorkspaceManager(settings.workspace_root)
+    workspace = (workspace_manager.root / project_id).resolve()
     try:
-        workspace.relative_to(WorkspaceManager().root)
+        workspace.relative_to(workspace_manager.root)
     except ValueError:
         return None
     return workspace if workspace.exists() else None
@@ -227,7 +228,7 @@ def get_project_files(project_id: str, path: str | None = Query(default=None), _
     workspace = _workspace_for(project_id)
     if workspace is None:
         return {"project_id": project_id, "files": []}
-    manager = WorkspaceManager()
+    manager = WorkspaceManager(settings.workspace_root)
     if path:
         try:
             content = manager.read_file(workspace, path)
