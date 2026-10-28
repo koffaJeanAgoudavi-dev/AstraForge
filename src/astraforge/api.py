@@ -26,11 +26,21 @@ from astraforge.orchestration.pipeline import AutonomousPipeline
 from astraforge.projects.schemas import ProjectSpec
 from astraforge.state.store import StateStore
 from astraforge.workspace.manager import WorkspaceManager
-from astraforge.workspace.runner import DockerCommandRunner
+from astraforge.workspace.runner import DockerCommandRunner, E2BCommandRunner
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 orchestrator = Orchestrator()
-state_store = StateStore()
+state_store = StateStore(settings.state_db_path, database_url=settings.database_url)
+
+
+def _build_command_runner():
+    """Select the execution sandbox explicitly; never silently fall back."""
+    backend = settings.sandbox_backend.strip().lower()
+    if backend == "docker":
+        return DockerCommandRunner()
+    if backend == "e2b":
+        return E2BCommandRunner()
+    raise RuntimeError("SANDBOX_BACKEND must be either 'docker' or 'e2b'")
 
 
 def require_api_key(x_astraforge_key: str | None = Header(default=None)) -> None:
@@ -145,7 +155,7 @@ async def _execute_build_job(job: dict) -> None:
     pipeline = AutonomousPipeline(
         coder,
         workspace_manager,
-        DockerCommandRunner(),
+        _build_command_runner(),
         github=github,
         reviewer=reviewer,
         state_store=state_store,
@@ -176,9 +186,10 @@ def _public_run(run: dict) -> dict:
 
 
 def _workspace_for(project_id: str):
-    workspace = (WorkspaceManager().root / project_id).resolve()
+    workspace_manager = WorkspaceManager()
+    workspace = (workspace_manager.root / project_id).resolve()
     try:
-        workspace.relative_to(WorkspaceManager().root)
+        workspace.relative_to(workspace_manager.root)
     except ValueError:
         return None
     return workspace if workspace.exists() else None

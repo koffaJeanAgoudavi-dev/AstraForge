@@ -3,12 +3,14 @@
 from pathlib import Path
 from uuid import uuid4
 
+from astraforge.config import settings
+
 
 class WorkspaceManager:
     """Create and manipulate files only inside an AstraForge workspace root."""
 
-    def __init__(self, root: str | Path = ".astraforge/workspaces") -> None:
-        self.root = Path(root).resolve()
+    def __init__(self, root: str | Path | None = None) -> None:
+        self.root = Path(root if root is not None else settings.workspace_root).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
 
     def create(self, project_id: str | None = None) -> Path:

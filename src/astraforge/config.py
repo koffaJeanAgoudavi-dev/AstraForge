@@ -10,6 +10,10 @@ class Settings(BaseSettings):
     api_host: str = "127.0.0.1"
     api_port: int = 8000
     astraforge_api_key: str | None = None
+    sandbox_backend: str = "docker"
+    state_db_path: str = ".astraforge/state.db"
+    database_url: str | None = None
+    workspace_root: str = ".astraforge/workspaces"
 
     groq_api_key: str | None = None
     groq_default_model: str = "openai/gpt-oss-120b"
