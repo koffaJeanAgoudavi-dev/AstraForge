@@ -1,1 +1,0 @@
-"""Persistent AstraForge execution state."""

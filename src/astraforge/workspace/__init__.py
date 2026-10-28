@@ -1,1 +1,0 @@
-"""Isolated project workspace management."""

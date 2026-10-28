@@ -1,1 +1,23 @@
-__pycache__/\n*.py[cod]\n*.egg-info/\n.venv/\nvenv/\n.env\n.env.*\n!.env.example\n.pytest_cache/\n.coverage\nhtmlcov/\n.mypy_cache/\n.ruff_cache/\n.idea/\n.vscode/\ndist/\nbuild/\n.astraforge/\n
+node_modules/
+dist/
+build/
+.env
+.env.*
+!.env.example
+*.tsbuildinfo
+.DS_Store
+
+# Python & caches
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.idea/
+.vscode/
+.astraforge/

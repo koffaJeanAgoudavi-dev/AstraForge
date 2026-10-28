@@ -1,0 +1,8 @@
+{
+  "name": "AstraForge — AI Software Engineer",
+  "description": "Autonomous multi-agent AI software engineer for building, testing, deploying, and managing applications.",
+  "permissions": [],
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
