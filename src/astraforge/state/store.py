@@ -8,6 +8,22 @@ from pathlib import Path
 from astraforge.projects.schemas import ProjectSpec, ProjectStatus
 
 
+class _PostgresCursor:
+    def __init__(self, cursor, lastrowid=None):
+        self.cursor = cursor
+        self.lastrowid = lastrowid
+
+    @property
+    def rowcount(self):
+        return self.cursor.rowcount
+
+    def fetchone(self):
+        return self.cursor.fetchone()
+
+    def fetchall(self):
+        return self.cursor.fetchall()
+
+
 class _PostgresConnection:
     """Compatibility adapter for the StateStore's existing DB-API calls."""
 
@@ -33,10 +49,11 @@ class _PostgresConnection:
         if capture_id:
             normalized = normalized.rstrip().rstrip(";") + " RETURNING id"
         cursor = self.connection.execute(normalized, params)
+        lastrowid = None
         if capture_id:
             row = cursor.fetchone()
-            cursor.lastrowid = row[0] if row else None
-        return cursor
+            lastrowid = row[0] if row else None
+        return _PostgresCursor(cursor, lastrowid)
 
     def commit(self):
         self.connection.commit()
