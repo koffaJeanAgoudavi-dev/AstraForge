@@ -36,3 +36,23 @@ There is deliberately no automatic fallback between providers: if the configured
 4. Configure durable persistence for SQLite and workspaces.
 5. Deploy a separate staging service and verify `/health`, authenticated project creation, build status, event streaming, file listing, and cancellation.
 6. Only then connect the AstraForge frontend to the staging API.
+
+## Render staging blueprint
+
+The repository includes `render.yaml` for a separate staging web service on the feature branch. It configures:
+
+- Python/FastAPI startup and `/health` health check.
+- `SANDBOX_BACKEND=e2b`.
+- Persistent disk mounted at `/var/data`.
+- SQLite at `/var/data/state.db` and workspaces at `/var/data/workspaces`.
+- A generated `ASTRAFORGE_API_KEY`; E2B and model provider keys remain secret environment variables.
+
+### Deployment steps
+
+1. Open Render and create a new Blueprint from the AstraForge GitHub repository.
+2. Select branch `feature/remote-sandbox-deployment` and review the proposed `astraforge-backend` service.
+3. Enter `E2B_API_KEY` and at least one supported model provider key, such as `GROQ_API_KEY`, when Render requests secret values.
+4. Confirm the Starter web service plan. The persistent disk requires a paid Render service; a free instance is not sufficient for this storage layout.
+5. Deploy, then verify `/health` and authenticated API requests before connecting the frontend.
+
+Do not put API keys in source files, frontend environment variables, screenshots, or pull-request comments. This Blueprint is configuration only; it does not create a service until applied in Render.
