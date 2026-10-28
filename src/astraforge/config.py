@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     astraforge_api_key: str | None = None
     sandbox_backend: str = "docker"
     state_db_path: str = ".astraforge/state.db"
+    database_url: str | None = None
     workspace_root: str = ".astraforge/workspaces"
 
     groq_api_key: str | None = None
